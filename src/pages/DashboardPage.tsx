@@ -1,4 +1,5 @@
 import { useCallback, useEffect } from "react";
+import { toast } from "sonner";
 
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -55,7 +56,17 @@ export function DashboardPage() {
       await invokeFunction("reel-processor");
       await refreshJobs();
     } catch (error) {
-      console.error(error);
+      toast.error(error instanceof Error ? error.message : "Falha ao processar fila");
+    }
+  }
+
+  async function processJob(jobId: string) {
+    try {
+      await invokeFunction("reel-processor", { jobId });
+      toast.success("Job enviado para processamento");
+      await refreshJobs();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao processar job");
     }
   }
 
@@ -134,6 +145,7 @@ export function DashboardPage() {
                   <TableHead>Clip</TableHead>
                   <TableHead>Criado</TableHead>
                   <TableHead>Erro</TableHead>
+                  <TableHead className="text-right">Ação</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -146,6 +158,19 @@ export function DashboardPage() {
                     <TableCell>{new Date(job.created_at).toLocaleString()}</TableCell>
                     <TableCell className="max-w-xs truncate text-muted-foreground">
                       {job.error_message ?? "-"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {job.status === "pending" || job.status === "error" ? (
+                        <Button
+                          onClick={() => void processJob(job.id)}
+                          size="sm"
+                          variant="outline"
+                        >
+                          Processar
+                        </Button>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">-</span>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

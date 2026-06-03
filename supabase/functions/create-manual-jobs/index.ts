@@ -47,7 +47,7 @@ Deno.serve(async (request) => {
     }
 
     if ((jobs?.length ?? 0) > 0) {
-      EdgeRuntime.waitUntil(triggerProcessor(jobs ?? []));
+      await triggerProcessor(jobs ?? []);
     }
 
     return jsonResponse({ count: jobs?.length ?? 0, jobs });
@@ -62,18 +62,28 @@ Deno.serve(async (request) => {
 async function triggerProcessor(jobs: Array<{ id: string }>) {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!supabaseUrl || !serviceRoleKey) return;
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+  }
 
-  await Promise.all(
-    jobs.map((job) =>
-      fetch(`${supabaseUrl}/functions/v1/reel-processor`, {
+  const responses = await Promise.all(
+    jobs.map(async (job) => {
+      const response = await fetch(`${supabaseUrl}/functions/v1/reel-processor`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${serviceRoleKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ jobId: job.id }),
-      }),
-    ),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to trigger reel-processor: ${await response.text()}`);
+      }
+
+      return response;
+    }),
   );
+
+  return responses;
 }

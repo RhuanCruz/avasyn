@@ -1,5 +1,5 @@
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
-import { createServiceClient } from "../_shared/supabase.ts";
+import { createServiceClient, getAuthenticatedUser } from "../_shared/supabase.ts";
 
 type QueueMessage = {
   msg_id: number;
@@ -15,6 +15,7 @@ Deno.serve(async (request) => {
   try {
     const body = await request.json().catch(() => ({}));
     if (body.jobId) {
+      await assertCanProcessJob(request, String(body.jobId));
       EdgeRuntime.waitUntil(dispatchToWorker(String(body.jobId), null));
       return jsonResponse({ accepted: true, jobId: body.jobId });
     }
@@ -37,6 +38,26 @@ Deno.serve(async (request) => {
     );
   }
 });
+
+async function assertCanProcessJob(request: Request, jobId: string) {
+  const authorization = request.headers.get("Authorization");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (serviceRoleKey && authorization === `Bearer ${serviceRoleKey}`) {
+    return;
+  }
+
+  const user = await getAuthenticatedUser(request);
+  const service = createServiceClient();
+  const { data: job, error } = await service
+    .from("reel_jobs")
+    .select("user_id")
+    .eq("id", jobId)
+    .single();
+
+  if (error || !job || job.user_id !== user.id) {
+    throw new Error("Job not found");
+  }
+}
 
 async function dispatchToWorker(jobId: string, msgId: number | null) {
   const service = createServiceClient();
