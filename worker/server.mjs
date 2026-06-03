@@ -6,10 +6,15 @@ import { join } from "node:path";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { createYtDlpArgs } from "./ytdlp-options.mjs";
+
 const port = Number(process.env.PORT ?? 8080);
 const supabaseUrl = process.env.SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const workerSecret = process.env.VIDEO_WORKER_SECRET;
+const ytdlpNodePath = process.env.YTDLP_NODE_PATH ?? "/usr/local/bin/node";
+const youtubeCookiesBase64 = process.env.YOUTUBE_COOKIES_BASE64;
+const youtubeCookies = process.env.YOUTUBE_COOKIES;
 
 if (!supabaseUrl || !serviceRoleKey) {
   throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required");
@@ -70,17 +75,14 @@ async function processJob(jobId) {
   const outputPath = join(workdir, "output.mp4");
 
   try {
-    await runCommand("yt-dlp", [
-      "-f",
-      "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
-      "--merge-output-format",
-      "mp4",
-      "--max-filesize",
-      "300M",
-      "-o",
+    const cookiesPath = await writeYoutubeCookiesFile(workdir);
+
+    await runCommand("yt-dlp", createYtDlpArgs({
       clipPath,
-      job.clip_url,
-    ]);
+      clipUrl: job.clip_url,
+      cookiesPath,
+      nodePath: ytdlpNodePath,
+    }));
 
     const { data: reactionFile, error: reactionError } = await supabase.storage
       .from("reaction-videos")
@@ -196,6 +198,20 @@ function readJson(request) {
 function sendJson(response, status, body) {
   response.writeHead(status, { "Content-Type": "application/json" });
   response.end(JSON.stringify(body));
+}
+
+async function writeYoutubeCookiesFile(workdir) {
+  const cookieContent = youtubeCookiesBase64
+    ? Buffer.from(youtubeCookiesBase64, "base64").toString("utf8")
+    : youtubeCookies;
+
+  if (!cookieContent) {
+    return undefined;
+  }
+
+  const cookiesPath = join(workdir, "youtube-cookies.txt");
+  await writeFile(cookiesPath, cookieContent.trimEnd() + "\n", { mode: 0o600 });
+  return cookiesPath;
 }
 
 function escapeDrawText(value) {

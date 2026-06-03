@@ -62,7 +62,17 @@ MVP interno para gerar e postar Instagram Reels usando Supabase e Zernio.
    SUPABASE_URL=https://odbuwhhfwxttzbbjpsuh.supabase.co
    SUPABASE_SERVICE_ROLE_KEY=
    VIDEO_WORKER_SECRET=
+   YOUTUBE_COOKIES_BASE64=
+   YTDLP_NODE_PATH=/usr/local/bin/node
    PORT=8080
+   ```
+
+   Para links do YouTube que retornam `Sign in to confirm you're not a bot`,
+   exporte cookies do YouTube no formato Netscape cookies.txt, gere base64 e
+   salve em `YOUTUBE_COOKIES_BASE64`:
+
+   ```bash
+   base64 -i youtube-cookies.txt | tr -d '\n'
    ```
 
    Depois configure a URL do worker no Supabase:
