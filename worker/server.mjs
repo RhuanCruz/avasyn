@@ -13,6 +13,7 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const workerSecret = process.env.VIDEO_WORKER_SECRET;
 const ytdlpNodePath = process.env.YTDLP_NODE_PATH ?? "/usr/local/bin/node";
+const ytdlpProxy = process.env.YTDLP_PROXY;
 const youtubeCookiesBase64 = process.env.YOUTUBE_COOKIES_BASE64;
 const youtubeCookies = process.env.YOUTUBE_COOKIES;
 
@@ -82,6 +83,7 @@ async function processJob(jobId) {
       clipUrl: job.clip_url,
       cookiesPath,
       nodePath: ytdlpNodePath,
+      proxyUrl: ytdlpProxy,
     }));
 
     const { data: reactionFile, error: reactionError } = await supabase.storage

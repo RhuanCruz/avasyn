@@ -3,6 +3,7 @@ export function createYtDlpArgs({
   clipUrl,
   cookiesPath,
   nodePath = "/usr/local/bin/node",
+  proxyUrl,
 }) {
   const args = [
     "-f",
@@ -18,6 +19,10 @@ export function createYtDlpArgs({
 
   if (cookiesPath) {
     args.push("--cookies", cookiesPath);
+  }
+
+  if (proxyUrl) {
+    args.push("--proxy", proxyUrl);
   }
 
   args.push("-o", clipPath, clipUrl);

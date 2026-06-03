@@ -24,4 +24,15 @@ describe("createYtDlpArgs", () => {
     expect(args).toContain("--cookies");
     expect(args).toContain("/tmp/youtube-cookies.txt");
   });
+
+  test("passes a proxy when configured", () => {
+    const args = createYtDlpArgs({
+      clipPath: "/tmp/clip.mp4",
+      clipUrl: "https://www.youtube.com/watch?v=wV0UkHS5iqk",
+      proxyUrl: "http://proxy.example:8080",
+    });
+
+    expect(args).toContain("--proxy");
+    expect(args).toContain("http://proxy.example:8080");
+  });
 });
