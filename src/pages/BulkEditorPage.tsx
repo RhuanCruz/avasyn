@@ -174,7 +174,7 @@ export function BulkEditorPage() {
               {uploading ? "Enviando..." : "Enviar vídeos"}
             </Button>
             <input
-              accept="video/mp4,video/quicktime,video/webm"
+              accept="video/*,video/mp4,video/quicktime,video/webm"
               className="sr-only"
               multiple
               onChange={(event) => void handleFiles(event)}
@@ -190,9 +190,12 @@ export function BulkEditorPage() {
       <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
         <div className="flex flex-col gap-4">
           <SourceVideoGrid
+            error={sourceVideos.error}
+            onFilesSelected={(event) => void handleFiles(event)}
             onRemove={(video) => void removeSourceVideo(video)}
             onToggle={(id) => toggleId(id, setSelectedSourceIds)}
             selectedIds={selectedSourceIds}
+            uploading={uploading}
             videos={sourceVideos.data}
           />
           <ReactionSelection
@@ -266,14 +269,20 @@ export function BulkEditorPage() {
 }
 
 function SourceVideoGrid({
+  error,
+  onFilesSelected,
   onRemove,
   onToggle,
   selectedIds,
+  uploading,
   videos,
 }: {
+  error: string | null;
+  onFilesSelected: (event: ChangeEvent<HTMLInputElement>) => void;
   onRemove: (video: SourceVideo) => void;
   onToggle: (id: string) => void;
   selectedIds: string[];
+  uploading: boolean;
   videos: SourceVideo[];
 }) {
   return (
@@ -282,10 +291,37 @@ function SourceVideoGrid({
         <CardTitle>Vídeos de lance</CardTitle>
         <CardDescription>Selecione os arquivos que entram nas combinações.</CardDescription>
       </CardHeader>
-      <CardContent>
-        {videos.length === 0 ? (
+      <CardContent className="flex flex-col gap-4">
+        <div className="rounded-md border border-dashed border-border p-4">
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="source-videos-file">
+                Escolher vídeos do computador
+              </FieldLabel>
+              <Input
+                accept="video/*,video/mp4,video/quicktime,video/webm"
+                disabled={uploading}
+                id="source-videos-file"
+                multiple
+                onChange={onFilesSelected}
+                type="file"
+              />
+              <FieldDescription>
+                Escolha um ou mais vídeos locais. Eles serão enviados para a biblioteca privada.
+              </FieldDescription>
+            </Field>
+          </FieldGroup>
+        </div>
+
+        {error ? (
+          <div className="rounded-md border border-border p-4 text-sm text-muted-foreground">
+            Erro ao carregar vídeos: {error}
+          </div>
+        ) : null}
+
+        {videos.length === 0 && !error ? (
           <div className="rounded-md border border-border p-8 text-sm text-muted-foreground">
-            Nenhum vídeo enviado.
+            Nenhum vídeo enviado ainda.
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
