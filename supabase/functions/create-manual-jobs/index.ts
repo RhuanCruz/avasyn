@@ -8,6 +8,7 @@ Deno.serve(async (request) => {
   try {
     const user = await getAuthenticatedUser(request);
     const service = createServiceClient();
+    const authorization = request.headers.get("Authorization");
     const body = await request.json();
     const clipUrls = body.clipUrls as string[];
 
@@ -47,7 +48,7 @@ Deno.serve(async (request) => {
     }
 
     if ((jobs?.length ?? 0) > 0) {
-      await triggerProcessor(jobs ?? []);
+      await triggerProcessor(jobs ?? [], authorization);
     }
 
     return jsonResponse({ count: jobs?.length ?? 0, jobs });
@@ -59,11 +60,13 @@ Deno.serve(async (request) => {
   }
 });
 
-async function triggerProcessor(jobs: Array<{ id: string }>) {
+async function triggerProcessor(
+  jobs: Array<{ id: string }>,
+  authorization: string | null,
+) {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !authorization) {
+    throw new Error("Missing SUPABASE_URL or authenticated request");
   }
 
   const responses = await Promise.all(
@@ -71,7 +74,7 @@ async function triggerProcessor(jobs: Array<{ id: string }>) {
       const response = await fetch(`${supabaseUrl}/functions/v1/reel-processor`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${serviceRoleKey}`,
+          Authorization: authorization,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ jobId: job.id }),
