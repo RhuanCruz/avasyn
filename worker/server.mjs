@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 import { createClient } from "@supabase/supabase-js";
 
-import { getClipSource } from "./job-media.mjs";
+import { getClipSource, getSourceVideoIdFromClipUrl } from "./job-media.mjs";
 import { parseTikTokSearchOutput } from "./tiktok-search.mjs";
 import { createTikTokSearchArgs, createYtDlpArgs } from "./ytdlp-options.mjs";
 
@@ -85,6 +85,7 @@ async function processJob(jobId) {
     .single();
 
   if (error || !job) throw new Error("Job not found");
+  await hydrateSourceVideo(job);
 
   await updateJob(jobId, { status: "processing", error_message: null });
 
@@ -196,6 +197,26 @@ async function searchTikTok(query, limit) {
 async function updateJob(jobId, values) {
   const { error } = await supabase.from("reel_jobs").update(values).eq("id", jobId);
   if (error) throw error;
+}
+
+async function hydrateSourceVideo(job) {
+  if (job.source_videos?.storage_path) return;
+
+  const sourceVideoId = job.source_video_id ?? getSourceVideoIdFromClipUrl(job.clip_url);
+  if (!sourceVideoId) return;
+
+  const { data, error } = await supabase
+    .from("source_videos")
+    .select("storage_path")
+    .eq("id", sourceVideoId)
+    .eq("user_id", job.user_id)
+    .single();
+
+  if (error || !data) {
+    throw new Error("Source video not found");
+  }
+
+  job.source_videos = data;
 }
 
 async function downloadStorageFile(bucket, storagePath, outputPath) {
