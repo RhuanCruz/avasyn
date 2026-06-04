@@ -70,6 +70,24 @@ export function DashboardPage() {
     }
   }
 
+  async function openGeneratedVideo(job: ReelJob) {
+    if (!job.output_path) {
+      toast.error("Vídeo ainda não disponível");
+      return;
+    }
+
+    const { data, error } = await supabase.storage
+      .from("generated-reels")
+      .createSignedUrl(job.output_path, 60 * 30);
+
+    if (error || !data?.signedUrl) {
+      toast.error(error?.message ?? "Falha ao abrir vídeo");
+      return;
+    }
+
+    window.open(data.signedUrl, "_blank", "noreferrer");
+  }
+
   useEffect(() => {
     const channel = supabase
       .channel("dashboard-reel-jobs")
@@ -160,7 +178,15 @@ export function DashboardPage() {
                       {job.error_message ?? "-"}
                     </TableCell>
                     <TableCell className="text-right">
-                      {job.status === "pending" || job.status === "error" ? (
+                      {job.status === "rendered" && job.output_path ? (
+                        <Button
+                          onClick={() => void openGeneratedVideo(job)}
+                          size="sm"
+                          variant="outline"
+                        >
+                          Ver vídeo
+                        </Button>
+                      ) : job.status === "pending" || job.status === "error" ? (
                         <Button
                           onClick={() => void processJob(job.id)}
                           size="sm"
