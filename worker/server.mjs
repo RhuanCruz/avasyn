@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { getClipSource } from "./job-media.mjs";
 import { parseTikTokSearchOutput } from "./tiktok-search.mjs";
 import { createTikTokSearchArgs, createYtDlpArgs } from "./ytdlp-options.mjs";
 
@@ -79,7 +80,7 @@ createServer(async (request, response) => {
 async function processJob(jobId) {
   const { data: job, error } = await supabase
     .from("reel_jobs")
-    .select("*, reaction_videos(storage_path)")
+    .select("*, reaction_videos(storage_path), source_videos(storage_path)")
     .eq("id", jobId)
     .single();
 
@@ -94,22 +95,21 @@ async function processJob(jobId) {
 
   try {
     const cookiesPath = await writeYoutubeCookiesFile(workdir);
+    const clipSource = getClipSource(job);
 
-    await runCommand("yt-dlp", createYtDlpArgs({
-      clipPath,
-      clipUrl: job.clip_url,
-      cookiesPath,
-      nodePath: ytdlpNodePath,
-      proxyUrl: ytdlpProxy,
-    }));
-
-    const { data: reactionFile, error: reactionError } = await supabase.storage
-      .from("reaction-videos")
-      .download(job.reaction_videos.storage_path);
-    if (reactionError || !reactionFile) {
-      throw new Error("Failed to download reaction");
+    if (clipSource.type === "storage") {
+      await downloadStorageFile("source-videos", clipSource.path, clipPath);
+    } else {
+      await runCommand("yt-dlp", createYtDlpArgs({
+        clipPath,
+        clipUrl: clipSource.url,
+        cookiesPath,
+        nodePath: ytdlpNodePath,
+        proxyUrl: ytdlpProxy,
+      }));
     }
-    await writeFile(reactionPath, Buffer.from(await reactionFile.arrayBuffer()));
+
+    await downloadStorageFile("reaction-videos", job.reaction_videos.storage_path, reactionPath);
 
     await runCommand("ffmpeg", [
       "-y",
@@ -196,6 +196,15 @@ async function searchTikTok(query, limit) {
 async function updateJob(jobId, values) {
   const { error } = await supabase.from("reel_jobs").update(values).eq("id", jobId);
   if (error) throw error;
+}
+
+async function downloadStorageFile(bucket, storagePath, outputPath) {
+  const { data, error } = await supabase.storage.from(bucket).download(storagePath);
+  if (error || !data) {
+    throw new Error(`Failed to download ${bucket} file`);
+  }
+
+  await writeFile(outputPath, Buffer.from(await data.arrayBuffer()));
 }
 
 function runCommand(command, args, options = {}) {

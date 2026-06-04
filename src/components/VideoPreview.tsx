@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
 type StorageVideoPreviewProps = {
-  bucket: "reaction-videos" | "generated-reels";
+  bucket: "reaction-videos" | "generated-reels" | "source-videos";
   path: string | null;
   title: string;
 };

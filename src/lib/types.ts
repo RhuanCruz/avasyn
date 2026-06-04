@@ -22,6 +22,15 @@ export type ReactionVideo = {
   created_at: string;
 };
 
+export type SourceVideo = {
+  id: string;
+  user_id: string;
+  name: string;
+  storage_path: string;
+  duration_s: number | null;
+  created_at: string;
+};
+
 export type SocialAccount = {
   id: string;
   user_id: string;
@@ -55,6 +64,7 @@ export type ReelJob = {
   user_id: string;
   automation_id: string | null;
   account_id: string | null;
+  source_video_id: string | null;
   clip_url: string;
   reaction_id: string;
   overlay_text: string;
