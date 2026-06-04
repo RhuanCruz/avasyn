@@ -6,7 +6,8 @@ import { join } from "node:path";
 
 import { createClient } from "@supabase/supabase-js";
 
-import { createYtDlpArgs } from "./ytdlp-options.mjs";
+import { parseTikTokSearchOutput } from "./tiktok-search.mjs";
+import { createTikTokSearchArgs, createYtDlpArgs } from "./ytdlp-options.mjs";
 
 const port = Number(process.env.PORT ?? 8080);
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -32,6 +33,22 @@ createServer(async (request, response) => {
   try {
     if (request.method === "GET" && request.url === "/health") {
       return sendJson(response, 200, { ok: true });
+    }
+
+    if (request.method === "POST" && request.url === "/search-tiktok") {
+      if (workerSecret && request.headers.authorization !== `Bearer ${workerSecret}`) {
+        return sendJson(response, 401, { error: "Unauthorized" });
+      }
+
+      const body = await readJson(request);
+      const query = String(body.query ?? "").trim();
+      const limit = clampLimit(body.limit);
+      if (!query) {
+        return sendJson(response, 400, { error: "query is required" });
+      }
+
+      const results = await searchTikTok(query, limit);
+      return sendJson(response, 200, { results });
     }
 
     if (request.method !== "POST" || request.url !== "/process-job") {
@@ -157,27 +174,56 @@ async function processJob(jobId) {
   }
 }
 
+async function searchTikTok(query, limit) {
+  const workdir = await mkdtemp(join(tmpdir(), "avasyn-search-"));
+
+  try {
+    const cookiesPath = await writeYoutubeCookiesFile(workdir);
+    const output = await runCommand("yt-dlp", createTikTokSearchArgs({
+      query,
+      limit,
+      cookiesPath,
+      nodePath: ytdlpNodePath,
+      proxyUrl: ytdlpProxy,
+    }), { captureStdout: true });
+
+    return parseTikTokSearchOutput(output);
+  } finally {
+    await rm(workdir, { recursive: true, force: true });
+  }
+}
+
 async function updateJob(jobId, values) {
   const { error } = await supabase.from("reel_jobs").update(values).eq("id", jobId);
   if (error) throw error;
 }
 
-function runCommand(command, args) {
+function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
     let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
     child.stderr.on("data", (chunk) => {
       stderr += chunk.toString();
     });
     child.on("error", reject);
     child.on("close", (code) => {
       if (code === 0) {
-        resolve();
+        resolve(options.captureStdout ? stdout : undefined);
       } else {
         reject(new Error(stderr || `${command} exited with code ${code}`));
       }
     });
   });
+}
+
+function clampLimit(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 12;
+  return Math.max(1, Math.min(20, Math.trunc(parsed)));
 }
 
 function readJson(request) {

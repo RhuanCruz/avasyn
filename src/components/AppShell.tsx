@@ -9,6 +9,7 @@ const navItems = [
   { href: "/reactions", label: "Reactions" },
   { href: "/accounts", label: "Contas" },
   { href: "/generate", label: "Gerar agora" },
+  { href: "/curate", label: "Curadoria TikTok" },
   { href: "/automations", label: "Automações" },
 ];
 

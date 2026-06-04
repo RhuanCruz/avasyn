@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { createYtDlpArgs } from "./ytdlp-options.mjs";
+import { createTikTokSearchArgs, createYtDlpArgs } from "./ytdlp-options.mjs";
 
 describe("createYtDlpArgs", () => {
   test("enables Node as the yt-dlp JavaScript runtime", () => {
@@ -32,6 +32,37 @@ describe("createYtDlpArgs", () => {
       proxyUrl: "http://proxy.example:8080",
     });
 
+    expect(args).toContain("--proxy");
+    expect(args).toContain("http://proxy.example:8080");
+  });
+});
+
+describe("createTikTokSearchArgs", () => {
+  test("builds a flat TikTok search command with Node runtime", () => {
+    const args = createTikTokSearchArgs({
+      query: "gol bicicleta meme",
+      limit: 12,
+    });
+
+    expect(args).toContain("--flat-playlist");
+    expect(args).toContain("--dump-json");
+    expect(args).toContain("--playlist-end");
+    expect(args).toContain("12");
+    expect(args).toContain("--js-runtimes");
+    expect(args).toContain("node:/usr/local/bin/node");
+    expect(args.at(-1)).toBe("tiktoksearch:gol bicicleta meme");
+  });
+
+  test("passes cookies and proxy for TikTok search when configured", () => {
+    const args = createTikTokSearchArgs({
+      query: "futebol",
+      limit: 8,
+      cookiesPath: "/tmp/cookies.txt",
+      proxyUrl: "http://proxy.example:8080",
+    });
+
+    expect(args).toContain("--cookies");
+    expect(args).toContain("/tmp/cookies.txt");
     expect(args).toContain("--proxy");
     expect(args).toContain("http://proxy.example:8080");
   });

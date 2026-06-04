@@ -29,3 +29,32 @@ export function createYtDlpArgs({
 
   return args;
 }
+
+export function createTikTokSearchArgs({
+  query,
+  limit,
+  cookiesPath,
+  nodePath = "/usr/local/bin/node",
+  proxyUrl,
+}) {
+  const args = [
+    "--flat-playlist",
+    "--dump-json",
+    "--playlist-end",
+    String(limit),
+    "--js-runtimes",
+    `node:${nodePath}`,
+  ];
+
+  if (cookiesPath) {
+    args.push("--cookies", cookiesPath);
+  }
+
+  if (proxyUrl) {
+    args.push("--proxy", proxyUrl);
+  }
+
+  args.push(`tiktoksearch:${query}`);
+
+  return args;
+}

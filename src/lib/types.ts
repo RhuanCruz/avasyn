@@ -82,3 +82,18 @@ export type PostHistory = {
   posted_at: string | null;
   created_at: string;
 };
+
+export type TikTokSearchResult = {
+  id: string;
+  user_id: string;
+  query: string;
+  result_url: string;
+  title: string | null;
+  thumbnail_url: string | null;
+  duration_s: number | null;
+  view_count: number | null;
+  uploader: string | null;
+  raw: Record<string, unknown>;
+  searched_at: string;
+  expires_at: string;
+};
