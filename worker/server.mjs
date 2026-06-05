@@ -198,12 +198,7 @@ async function searchTikTok(query, limit) {
 }
 
 async function processMediaImport(importId) {
-  const { data: mediaImport, error } = await supabase
-    .from("media_imports")
-    .select("*")
-    .eq("id", importId)
-    .single();
-  if (error || !mediaImport) throw new Error("Media import not found");
+  const mediaImport = await findMediaImport(importId);
 
   await updateMediaImport(importId, {
     status: "processing",
@@ -241,6 +236,27 @@ async function processMediaImport(importId) {
   } finally {
     await rm(workdir, { recursive: true, force: true });
   }
+}
+
+async function findMediaImport(importId) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const { data, error } = await supabase
+      .from("media_imports")
+      .select("*")
+      .eq("id", importId)
+      .maybeSingle();
+
+    if (data) return data;
+    lastError = error;
+    if (attempt < 3) await sleep(500 * attempt);
+  }
+
+  const details = lastError
+    ? [lastError.code, lastError.message, lastError.details].filter(Boolean).join(": ")
+    : "record is not visible to the worker";
+  throw new Error(`Media import ${importId} not found: ${details}`);
 }
 
 async function downloadImportUrl(url, workdir) {
@@ -372,6 +388,10 @@ async function uploadStorageFile(bucket, storagePath, localPath, contentType) {
 async function updateMediaImport(importId, values) {
   const { error } = await supabase.from("media_imports").update(values).eq("id", importId);
   if (error) throw error;
+}
+
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 async function writeInstagramCookiesFile(workdir) {
