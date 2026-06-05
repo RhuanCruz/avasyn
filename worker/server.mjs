@@ -101,13 +101,7 @@ createServer(async (request, response) => {
 });
 
 async function processJob(jobId) {
-  const { data: job, error } = await supabase
-    .from("reel_jobs")
-    .select("*, reaction_videos(storage_path), source_videos(storage_path)")
-    .eq("id", jobId)
-    .single();
-
-  if (error || !job) throw new Error("Job not found");
+  const job = await findJob(jobId);
   await hydrateSourceVideo(job);
 
   await updateJob(jobId, { status: "processing", error_message: null });
@@ -176,6 +170,27 @@ async function processJob(jobId) {
   } finally {
     await rm(workdir, { recursive: true, force: true });
   }
+}
+
+async function findJob(jobId) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const { data, error } = await supabase
+      .from("reel_jobs")
+      .select("*, reaction_videos(storage_path), source_videos(storage_path)")
+      .eq("id", jobId)
+      .maybeSingle();
+
+    if (data) return data;
+    lastError = error;
+    if (attempt < 3) await sleep(500 * attempt);
+  }
+
+  const details = lastError
+    ? [lastError.code, lastError.message, lastError.details].filter(Boolean).join(": ")
+    : "record is not visible to the worker";
+  throw new Error(`Job ${jobId} not found: ${details}`);
 }
 
 async function searchTikTok(query, limit) {
