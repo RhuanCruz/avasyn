@@ -13,6 +13,7 @@ import { CuratePage } from "@/pages/CuratePage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { GeneratePage } from "@/pages/GeneratePage";
 import { LoginPage } from "@/pages/LoginPage";
+import { LibraryPage } from "@/pages/LibraryPage";
 import { ReactionsPage } from "@/pages/ReactionsPage";
 import "@/index.css";
 
@@ -26,6 +27,7 @@ const router = createBrowserRouter([
         children: [
           { path: "/", element: <DashboardPage /> },
           { path: "/reactions", element: <ReactionsPage /> },
+          { path: "/library", element: <LibraryPage /> },
           { path: "/accounts", element: <AccountsPage /> },
           { path: "/generate", element: <GeneratePage /> },
           { path: "/bulk-editor", element: <BulkEditorPage /> },

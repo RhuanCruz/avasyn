@@ -7,6 +7,7 @@ import { cn } from "@/lib/cn";
 const navItems = [
   { href: "/", label: "Dashboard" },
   { href: "/reactions", label: "Reactions" },
+  { href: "/library", label: "Biblioteca" },
   { href: "/accounts", label: "Contas" },
   { href: "/generate", label: "Gerar agora" },
   { href: "/bulk-editor", label: "Editor em massa" },

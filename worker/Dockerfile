@@ -5,7 +5,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m venv /opt/venv \
-  && /opt/venv/bin/pip install --no-cache-dir yt-dlp
+  && /opt/venv/bin/pip install --no-cache-dir yt-dlp gallery-dl
 
 ENV PATH="/opt/venv/bin:${PATH}"
 

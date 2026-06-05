@@ -45,6 +45,7 @@ MVP interno para gerar e postar Instagram Reels usando Supabase e Zernio.
    supabase functions deploy zernio-connect-url
    supabase functions deploy zernio-sync-accounts
    supabase functions deploy create-manual-jobs
+   supabase functions deploy create-media-import
    supabase functions deploy reel-processor
    supabase functions deploy post-to-zernio
    supabase functions deploy automation-scheduler
@@ -62,7 +63,9 @@ MVP interno para gerar e postar Instagram Reels usando Supabase e Zernio.
    SUPABASE_URL=https://odbuwhhfwxttzbbjpsuh.supabase.co
    SUPABASE_SERVICE_ROLE_KEY=
    VIDEO_WORKER_SECRET=
-   YOUTUBE_COOKIES_BASE64=
+     YOUTUBE_COOKIES_BASE64=
+     INSTAGRAM_COOKIES_BASE64=
+     INSTAGRAM_DOWNLOAD_DELAY_SECONDS=2
    YTDLP_NODE_PATH=/usr/local/bin/node
    PORT=8080
    ```
@@ -82,6 +85,10 @@ MVP interno para gerar e postar Instagram Reels usando Supabase e Zernio.
      VIDEO_WORKER_URL=https://seu-worker.example.com \
      VIDEO_WORKER_SECRET=
    ```
+
+   `INSTAGRAM_COOKIES_BASE64` deve conter um arquivo Netscape cookies.txt
+   exportado de uma sessão Instagram autorizada. Após alterar o worker,
+   reconstrua o stack para instalar também o `gallery-dl`.
 
 6. Rode local:
 

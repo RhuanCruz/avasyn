@@ -28,7 +28,31 @@ export type SourceVideo = {
   name: string;
   storage_path: string;
   duration_s: number | null;
+  source_type: "upload" | "url" | "instagram_profile";
+  source_url: string | null;
+  source_platform: string | null;
+  source_external_id: string | null;
+  source_username: string | null;
+  thumbnail_path: string | null;
+  source_published_at: string | null;
+  view_count: number | null;
+  like_count: number | null;
+  metadata: Record<string, unknown>;
   created_at: string;
+};
+
+export type MediaImport = {
+  id: string;
+  user_id: string;
+  type: "url" | "instagram_profile";
+  input: string;
+  requested_limit: number;
+  status: "pending" | "processing" | "completed" | "partial" | "error";
+  total_items: number;
+  processed_items: number;
+  error_message: string | null;
+  created_at: string;
+  completed_at: string | null;
 };
 
 export type SocialAccount = {

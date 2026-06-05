@@ -1,12 +1,17 @@
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createClient } from "@supabase/supabase-js";
 
 import { getClipSource, getSourceVideoIdFromClipUrl } from "./job-media.mjs";
+import {
+  createGalleryDlArgs,
+  detectPlatform,
+  sanitizeExternalId,
+} from "./media-import.mjs";
 import { parseTikTokSearchOutput } from "./tiktok-search.mjs";
 import { createTikTokSearchArgs, createYtDlpArgs } from "./ytdlp-options.mjs";
 
@@ -18,6 +23,10 @@ const ytdlpNodePath = process.env.YTDLP_NODE_PATH ?? "/usr/local/bin/node";
 const ytdlpProxy = process.env.YTDLP_PROXY;
 const youtubeCookiesBase64 = process.env.YOUTUBE_COOKIES_BASE64;
 const youtubeCookies = process.env.YOUTUBE_COOKIES;
+const instagramCookiesBase64 = process.env.INSTAGRAM_COOKIES_BASE64;
+const instagramDownloadDelaySeconds = Number(
+  process.env.INSTAGRAM_DOWNLOAD_DELAY_SECONDS ?? 2,
+);
 
 if (!supabaseUrl || !serviceRoleKey) {
   throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required");
@@ -50,6 +59,20 @@ createServer(async (request, response) => {
 
       const results = await searchTikTok(query, limit);
       return sendJson(response, 200, { results });
+    }
+
+    if (request.method === "POST" && request.url === "/process-media-import") {
+      if (workerSecret && request.headers.authorization !== `Bearer ${workerSecret}`) {
+        return sendJson(response, 401, { error: "Unauthorized" });
+      }
+
+      const body = await readJson(request);
+      if (!body.importId) {
+        return sendJson(response, 400, { error: "importId is required" });
+      }
+
+      await processMediaImport(String(body.importId));
+      return sendJson(response, 200, { ok: true, importId: body.importId });
     }
 
     if (request.method !== "POST" || request.url !== "/process-job") {
@@ -172,6 +195,213 @@ async function searchTikTok(query, limit) {
   } finally {
     await rm(workdir, { recursive: true, force: true });
   }
+}
+
+async function processMediaImport(importId) {
+  const { data: mediaImport, error } = await supabase
+    .from("media_imports")
+    .select("*")
+    .eq("id", importId)
+    .single();
+  if (error || !mediaImport) throw new Error("Media import not found");
+
+  await updateMediaImport(importId, {
+    status: "processing",
+    error_message: null,
+  });
+
+  const workdir = await mkdtemp(join(tmpdir(), "avasyn-import-"));
+  let processed = 0;
+
+  try {
+    const candidates = mediaImport.type === "instagram_profile"
+      ? await downloadInstagramProfile(mediaImport, workdir)
+      : [await downloadImportUrl(mediaImport.input, workdir)];
+
+    await updateMediaImport(importId, { total_items: candidates.length });
+
+    for (const candidate of candidates) {
+      await storeImportedVideo(mediaImport, candidate, workdir);
+      processed += 1;
+      await updateMediaImport(importId, { processed_items: processed });
+    }
+
+    await updateMediaImport(importId, {
+      status: "completed",
+      completed_at: new Date().toISOString(),
+    });
+  } catch (error) {
+    await updateMediaImport(importId, {
+      status: processed > 0 ? "partial" : "error",
+      error_message: error instanceof Error ? error.message : "Unknown import error",
+      processed_items: processed,
+      completed_at: new Date().toISOString(),
+    });
+    throw error;
+  } finally {
+    await rm(workdir, { recursive: true, force: true });
+  }
+}
+
+async function downloadImportUrl(url, workdir) {
+  const videoPath = join(workdir, "import.mp4");
+  const infoPath = join(workdir, "import.info.json");
+  const platform = detectPlatform(url);
+  const cookiesPath = platform === "instagram"
+    ? await writeInstagramCookiesFile(workdir)
+    : await writeYoutubeCookiesFile(workdir);
+  await runCommand("yt-dlp", [
+    "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
+    "--merge-output-format", "mp4",
+    "--max-filesize", "300M",
+    "--js-runtimes", `node:${ytdlpNodePath}`,
+    "--no-playlist",
+    "--write-info-json",
+    ...(cookiesPath ? ["--cookies", cookiesPath] : []),
+    ...(ytdlpProxy ? ["--proxy", ytdlpProxy] : []),
+    "-o", videoPath,
+    url,
+  ]);
+
+  const metadata = await readJsonFile(infoPath);
+  return {
+    videoPath,
+    metadata,
+    externalId: sanitizeExternalId(metadata?.id ?? url),
+    platform,
+    sourceUrl: url,
+  };
+}
+
+async function downloadInstagramProfile(mediaImport, workdir) {
+  const destination = join(workdir, "instagram");
+  const cookiesPath = await writeInstagramCookiesFile(workdir);
+  if (!cookiesPath) {
+    throw new Error("INSTAGRAM_COOKIES_BASE64 is not configured");
+  }
+
+  await runCommand("gallery-dl", createGalleryDlArgs({
+    cookiesPath,
+    destination,
+    delaySeconds: instagramDownloadDelaySeconds,
+    limit: mediaImport.requested_limit,
+    username: mediaImport.input,
+  }));
+
+  const files = await listFiles(destination);
+  const candidates = await Promise.all(
+    files
+      .filter((path) => /\.(mp4|mov|webm)$/i.test(path))
+      .slice(0, mediaImport.requested_limit)
+      .map(async (videoPath) => {
+        const metadata = await readJsonFile(`${videoPath}.json`);
+        const filename = videoPath.split("/").pop() ?? crypto.randomUUID();
+        return {
+          videoPath,
+          metadata,
+          externalId: sanitizeExternalId(metadata?.shortcode ?? metadata?.id ?? filename),
+          platform: "instagram",
+          sourceUrl: metadata?.post_url ?? metadata?.url ?? null,
+        };
+      }),
+  );
+  if (candidates.length === 0) {
+    throw new Error("No accessible Instagram Reels were found for this profile");
+  }
+  return candidates;
+}
+
+async function storeImportedVideo(mediaImport, candidate, workdir) {
+  const storageId = candidate.externalId || crypto.randomUUID();
+  const videoStoragePath = `${mediaImport.user_id}/${storageId}.mp4`;
+  const thumbnailStoragePath = `${mediaImport.user_id}/${storageId}.jpg`;
+  const thumbnailPath = join(workdir, `${storageId}.jpg`);
+
+  await runCommand("ffmpeg", [
+    "-y", "-i", candidate.videoPath, "-frames:v", "1", "-q:v", "3", thumbnailPath,
+  ]);
+
+  await uploadStorageFile("source-videos", videoStoragePath, candidate.videoPath, "video/mp4");
+  await uploadStorageFile(
+    "source-thumbnails",
+    thumbnailStoragePath,
+    thumbnailPath,
+    "image/jpeg",
+  );
+
+  const metadata = candidate.metadata ?? {};
+  const row = {
+    user_id: mediaImport.user_id,
+    name: String(metadata.title ?? metadata.description ?? storageId).slice(0, 240),
+    storage_path: videoStoragePath,
+    duration_s: numberOrNull(metadata.duration),
+    source_type: mediaImport.type,
+    source_url: candidate.sourceUrl,
+    source_platform: candidate.platform,
+    source_external_id: storageId,
+    source_username: mediaImport.type === "instagram_profile" ? mediaImport.input : null,
+    thumbnail_path: thumbnailStoragePath,
+    source_published_at: metadata.timestamp
+      ? new Date(Number(metadata.timestamp) * 1000).toISOString()
+      : null,
+    view_count: numberOrNull(metadata.view_count),
+    like_count: numberOrNull(metadata.like_count),
+    metadata,
+  };
+  const { data: existing } = await supabase
+    .from("source_videos")
+    .select("id")
+    .eq("user_id", mediaImport.user_id)
+    .eq("source_platform", candidate.platform)
+    .eq("source_external_id", storageId)
+    .maybeSingle();
+  const query = existing
+    ? supabase.from("source_videos").update(row).eq("id", existing.id)
+    : supabase.from("source_videos").insert(row);
+  const { error } = await query;
+  if (error) throw error;
+}
+
+async function uploadStorageFile(bucket, storagePath, localPath, contentType) {
+  const upload = await supabase.storage
+    .from(bucket)
+    .upload(storagePath, await readFile(localPath), { contentType, upsert: true });
+  if (upload.error) throw upload.error;
+}
+
+async function updateMediaImport(importId, values) {
+  const { error } = await supabase.from("media_imports").update(values).eq("id", importId);
+  if (error) throw error;
+}
+
+async function writeInstagramCookiesFile(workdir) {
+  if (!instagramCookiesBase64) return undefined;
+  const path = join(workdir, "instagram-cookies.txt");
+  await writeFile(path, Buffer.from(instagramCookiesBase64, "base64"), { mode: 0o600 });
+  return path;
+}
+
+async function listFiles(path) {
+  const entries = await readdir(path, { withFileTypes: true });
+  const nested = await Promise.all(entries.map(async (entry) => {
+    const entryPath = join(path, entry.name);
+    return entry.isDirectory() ? listFiles(entryPath) : [entryPath];
+  }));
+  return nested.flat();
+}
+
+async function readJsonFile(path) {
+  try {
+    if (!(await stat(path)).isFile()) return null;
+    return JSON.parse(await readFile(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function numberOrNull(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 async function updateJob(jobId, values) {

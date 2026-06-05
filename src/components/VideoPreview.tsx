@@ -57,6 +57,51 @@ export function StorageVideoPreview({ bucket, path, title }: StorageVideoPreview
   );
 }
 
+export function StorageImagePreview({
+  path,
+  title,
+}: {
+  path: string | null;
+  title: string;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    async function loadSignedUrl() {
+      if (!path) {
+        setUrl(null);
+        return;
+      }
+      const { data, error } = await supabase.storage
+        .from("source-thumbnails")
+        .createSignedUrl(path, 60 * 30);
+      if (active) setUrl(error ? null : data.signedUrl);
+    }
+    void loadSignedUrl();
+    return () => {
+      active = false;
+    };
+  }, [path]);
+
+  if (!url) {
+    return (
+      <div className="flex aspect-square items-center justify-center rounded-md border border-border bg-secondary p-3 text-center text-sm text-muted-foreground">
+        {title}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      alt={title}
+      className="aspect-square w-full rounded-md border border-border bg-black object-cover"
+      loading="lazy"
+      src={url}
+    />
+  );
+}
+
 type ClipUrlPreviewProps = {
   url: string;
 };

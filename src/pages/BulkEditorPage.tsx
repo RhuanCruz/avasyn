@@ -1,16 +1,14 @@
 import {
-  ChangeEvent,
   Dispatch,
   FormEvent,
   SetStateAction,
   useCallback,
   useMemo,
-  useRef,
   useState,
 } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 
-import { useAuth } from "@/auth/AuthContext";
 import { GeneratedJobsPanel } from "@/components/GeneratedJobsPanel";
 import { PageHeader } from "@/components/PageHeader";
 import { StorageVideoPreview } from "@/components/VideoPreview";
@@ -36,9 +34,6 @@ type CreateJobsResponse = {
 };
 
 export function BulkEditorPage() {
-  const { user } = useAuth();
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [uploading, setUploading] = useState(false);
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
   const [selectedReactionIds, setSelectedReactionIds] = useState<string[]>([]);
   const [caption, setCaption] = useState("Melhor lance do dia #futebol");
@@ -90,60 +85,6 @@ export function BulkEditorPage() {
     [reactions.data, selectedReactionIds],
   );
 
-  async function handleFiles(event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? []);
-    if (files.length === 0 || !user) return;
-
-    setUploading(true);
-    try {
-      for (const file of files) {
-        const storagePath = `${user.id}/${crypto.randomUUID()}-${file.name}`;
-        const upload = await supabase.storage
-          .from("source-videos")
-          .upload(storagePath, file, { contentType: file.type, upsert: false });
-
-        if (upload.error) throw upload.error;
-
-        const { error } = await supabase.from("source_videos").insert({
-          user_id: user.id,
-          name: file.name,
-          storage_path: storagePath,
-        });
-
-        if (error) throw error;
-      }
-
-      toast.success(files.length === 1 ? "Vídeo enviado" : `${files.length} vídeos enviados`);
-      await sourceVideos.refresh();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Falha no upload");
-    } finally {
-      setUploading(false);
-      event.target.value = "";
-    }
-  }
-
-  async function removeSourceVideo(video: SourceVideo) {
-    try {
-      const storage = await supabase.storage
-        .from("source-videos")
-        .remove([video.storage_path]);
-      if (storage.error) throw storage.error;
-
-      const { error } = await supabase
-        .from("source_videos")
-        .delete()
-        .eq("id", video.id);
-      if (error) throw error;
-
-      setSelectedSourceIds((current) => current.filter((id) => id !== video.id));
-      toast.success("Vídeo removido");
-      await sourceVideos.refresh();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Falha ao remover");
-    }
-  }
-
   async function handleCreateJobs(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setCreating(true);
@@ -169,21 +110,14 @@ export function BulkEditorPage() {
     <>
       <PageHeader
         action={
-          <>
-            <Button disabled={uploading} onClick={() => fileInputRef.current?.click()}>
-              {uploading ? "Enviando..." : "Enviar vídeos"}
-            </Button>
-            <input
-              accept="video/*,video/mp4,video/quicktime,video/webm"
-              className="sr-only"
-              multiple
-              onChange={(event) => void handleFiles(event)}
-              ref={fileInputRef}
-              type="file"
-            />
-          </>
+          <Link
+            className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            to="/library"
+          >
+            Abrir biblioteca
+          </Link>
         }
-        description="Suba vídeos próprios de lances/edits e gere combinações com suas reactions."
+        description="Selecione vídeos da biblioteca e gere combinações com suas reactions."
         title="Editor em massa"
       />
 
@@ -191,11 +125,8 @@ export function BulkEditorPage() {
         <div className="flex flex-col gap-4">
           <SourceVideoGrid
             error={sourceVideos.error}
-            onFilesSelected={(event) => void handleFiles(event)}
-            onRemove={(video) => void removeSourceVideo(video)}
             onToggle={(id) => toggleId(id, setSelectedSourceIds)}
             selectedIds={selectedSourceIds}
-            uploading={uploading}
             videos={sourceVideos.data}
           />
           <ReactionSelection
@@ -270,19 +201,13 @@ export function BulkEditorPage() {
 
 function SourceVideoGrid({
   error,
-  onFilesSelected,
-  onRemove,
   onToggle,
   selectedIds,
-  uploading,
   videos,
 }: {
   error: string | null;
-  onFilesSelected: (event: ChangeEvent<HTMLInputElement>) => void;
-  onRemove: (video: SourceVideo) => void;
   onToggle: (id: string) => void;
   selectedIds: string[];
-  uploading: boolean;
   videos: SourceVideo[];
 }) {
   return (
@@ -292,27 +217,6 @@ function SourceVideoGrid({
         <CardDescription>Selecione os arquivos que entram nas combinações.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <div className="rounded-md border border-dashed border-border p-4">
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="source-videos-file">
-                Escolher vídeos do computador
-              </FieldLabel>
-              <Input
-                accept="video/*,video/mp4,video/quicktime,video/webm"
-                disabled={uploading}
-                id="source-videos-file"
-                multiple
-                onChange={onFilesSelected}
-                type="file"
-              />
-              <FieldDescription>
-                Escolha um ou mais vídeos locais. Eles serão enviados para a biblioteca privada.
-              </FieldDescription>
-            </Field>
-          </FieldGroup>
-        </div>
-
         {error ? (
           <div className="rounded-md border border-border p-4 text-sm text-muted-foreground">
             Erro ao carregar vídeos: {error}
@@ -321,7 +225,7 @@ function SourceVideoGrid({
 
         {videos.length === 0 && !error ? (
           <div className="rounded-md border border-border p-8 text-sm text-muted-foreground">
-            Nenhum vídeo enviado ainda.
+            Nenhum vídeo na biblioteca. <Link className="underline underline-offset-4" to="/library">Adicionar mídias</Link>
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
@@ -341,23 +245,13 @@ function SourceVideoGrid({
                     path={video.storage_path}
                     title={video.name}
                   />
-                  <div className="flex gap-2">
-                    <Button
-                      className="flex-1"
-                      onClick={() => onToggle(video.id)}
-                      type="button"
-                      variant={selected ? "default" : "outline"}
-                    >
-                      {selected ? "Selecionado" : "Selecionar"}
-                    </Button>
-                    <Button
-                      onClick={() => onRemove(video)}
-                      type="button"
-                      variant="outline"
-                    >
-                      Remover
-                    </Button>
-                  </div>
+                  <Button
+                    onClick={() => onToggle(video.id)}
+                    type="button"
+                    variant={selected ? "default" : "outline"}
+                  >
+                    {selected ? "Selecionado" : "Selecionar"}
+                  </Button>
                 </article>
               );
             })}
