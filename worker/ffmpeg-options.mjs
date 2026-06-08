@@ -6,14 +6,14 @@ export function createFfmpegArgs({
   withDrawText,
 }) {
   const stackFilter = [
-    "[0:v]scale=720:512:force_original_aspect_ratio=increase,crop=720:512,setsar=1[top]",
-    "[1:v]scale=720:768:force_original_aspect_ratio=increase,crop=720:768,setsar=1[bot]",
+    "[0:v]scale=720:448:force_original_aspect_ratio=increase,crop=720:448,setsar=1[top]",
+    "[1:v]scale=720:832:force_original_aspect_ratio=increase,crop=720:832,setsar=1[bot]",
     "[top][bot]vstack=inputs=2:shortest=1[stack]",
   ].join(";");
   const filter = withDrawText
     ? `${stackFilter};[stack]drawtext=text='${escapeDrawText(
       overlayText,
-    )}':fontsize=30:fontcolor=white:x=(w-text_w)/2:y=498:box=1:boxcolor=black@0.58:borderw=8[out]`
+    )}':fontsize=30:fontcolor=white:x=(w-text_w)/2:y=434:box=1:boxcolor=black@0.58:borderw=8[out]`
     : `${stackFilter};[stack]copy[out]`;
 
   return [
