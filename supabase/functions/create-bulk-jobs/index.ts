@@ -4,6 +4,11 @@ import {
   getAuthenticatedUser,
   resolveOwnedAvatar,
 } from "../_shared/supabase.ts";
+import {
+  type BulkTextCombination,
+  type GeneratedBulkText,
+  normalizeGeneratedTexts,
+} from "./bulk-texts.ts";
 
 declare const EdgeRuntime: {
   waitUntil: (promise: Promise<unknown>) => void;
@@ -114,21 +119,6 @@ function uniqueStrings(value: unknown) {
   return Array.from(new Set(value.map(String).filter(Boolean)));
 }
 
-type BulkTextCombination = {
-  reactionId: string;
-  sourceVideo: {
-    id: string;
-    name: string;
-    source_platform?: string | null;
-    source_url?: string | null;
-  };
-};
-
-type GeneratedBulkText = {
-  caption: string;
-  overlayText: string;
-};
-
 async function generateBulkTexts({
   captionBrief,
   combinations,
@@ -162,8 +152,11 @@ async function generateBulkTexts({
                 "Você gera textos curtos para Reels de futebol em português do Brasil.",
                 "Responda apenas no JSON schema solicitado.",
                 "Crie exatamente um item por combinação recebida, na mesma ordem.",
-                "overlayText deve ter no máximo 3 palavras, sem emoji, sem hashtag e sem pontuação exagerada.",
-                "caption deve ser uma legenda curta de Instagram, variada entre itens, com hashtags moderadas.",
+                "Atenção: você NÃO conhece o conteúdo visual real dos vídeos. Não invente o que aconteceu no lance.",
+                "overlayText deve ser genérico, funcionar para qualquer lance, ter no máximo 3 palavras, sem emoji, sem hashtag e sem pontuação exagerada.",
+                "caption deve ser genérica, curta, variada entre itens e não pode afirmar eventos específicos do vídeo.",
+                "Evite palavras específicas como gol, golaço, defesa, falta, pênalti, drible, chute, goleiro ou craque.",
+                "Prefira chamadas neutras como: Olha isso, Que lance, Sem palavras, Que cena, Essa reação diz tudo.",
                 "Evite repetir overlayText ou caption dentro do mesmo lote.",
               ].join("\n"),
             },
@@ -251,71 +244,6 @@ function extractOutputText(response: unknown) {
     ?.flatMap((item) => item.content ?? [])
     .find((content) => content.type === "output_text" && content.text)
     ?.text ?? null;
-}
-
-function normalizeGeneratedTexts(
-  items: GeneratedBulkText[],
-  combinations: BulkTextCombination[],
-) {
-  const usedCaptions = new Set<string>();
-  const usedOverlays = new Set<string>();
-  const fallbackOverlays = [
-    "Que lance",
-    "Olha isso",
-    "Foi falta",
-    "Drible seco",
-    "Golaço absurdo",
-    "Lance quente",
-    "Que jogada",
-    "Pegou fogo",
-  ];
-
-  return items.map((item, index) => {
-    let overlayText = sanitizeOverlayText(item.overlayText);
-    if (!overlayText || usedOverlays.has(overlayText.toLowerCase())) {
-      overlayText = fallbackOverlays[index % fallbackOverlays.length];
-    }
-    if (usedOverlays.has(overlayText.toLowerCase())) {
-      overlayText = firstWords(combinations[index].sourceVideo.name, 3) || `Lance ${index + 1}`;
-    }
-    overlayText = sanitizeOverlayText(overlayText);
-    usedOverlays.add(overlayText.toLowerCase());
-
-    let caption = sanitizeCaption(item.caption);
-    if (!caption) {
-      caption = `Olha esse lance. #futebol`;
-    }
-    if (usedCaptions.has(caption.toLowerCase())) {
-      caption = `${caption} #futebol${index + 1}`;
-    }
-    usedCaptions.add(caption.toLowerCase());
-
-    return { caption, overlayText };
-  });
-}
-
-function sanitizeOverlayText(value: string) {
-  return firstWords(
-    String(value)
-      .replace(/[#@][\p{L}\p{N}_-]+/gu, "")
-      .replace(/[^\p{L}\p{N}\s]/gu, " ")
-      .replace(/\s+/g, " ")
-      .trim(),
-    3,
-  );
-}
-
-function firstWords(value: string, maxWords: number) {
-  return String(value)
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, maxWords)
-    .join(" ");
-}
-
-function sanitizeCaption(value: string) {
-  return String(value).replace(/\s+/g, " ").trim().slice(0, 280);
 }
 
 async function triggerProcessor(

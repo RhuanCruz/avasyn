@@ -26,7 +26,10 @@ describe("createFfmpegArgs", () => {
     });
     const filter = args[args.indexOf("-filter_complex") + 1];
 
-    expect(filter).toContain("[0:v]scale=720:448:force_original_aspect_ratio=increase,crop=720:448");
+    expect(filter).toContain("[0:v]split=2[reaction_bg_src][reaction_fg_src]");
+    expect(filter).toContain("[reaction_bg_src]scale=720:448:force_original_aspect_ratio=increase,crop=720:448,boxblur=18:1");
+    expect(filter).toContain("[reaction_fg_src]scale=720:448:force_original_aspect_ratio=decrease,format=rgba,pad=720:448:(ow-iw)/2:(oh-ih)/2:color=black@0");
+    expect(filter).toContain("[reaction_bg][reaction_fg]overlay=(W-w)/2:(H-h)/2:format=auto[top]");
     expect(filter).toContain("[1:v]scale=720:832:force_original_aspect_ratio=increase,crop=720:832");
     expect(filter).toContain("y=434");
   });
