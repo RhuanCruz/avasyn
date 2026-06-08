@@ -3,13 +3,17 @@ export function createFfmpegArgs({
   outputPath,
   overlayText,
   reactionPath,
+  reactionPositionX = 0,
+  reactionPositionY = 0,
   withDrawText,
 }) {
+  const overlayX = positionToOverlayRatio(reactionPositionX);
+  const overlayY = positionToOverlayRatio(reactionPositionY);
   const stackFilter = [
     "[0:v]split=2[reaction_bg_src][reaction_fg_src]",
     "[reaction_bg_src]scale=720:448:force_original_aspect_ratio=increase,crop=720:448,boxblur=18:1,setsar=1[reaction_bg]",
-    "[reaction_fg_src]scale=720:448:force_original_aspect_ratio=decrease,format=rgba,pad=720:448:(ow-iw)/2:(oh-ih)/2:color=black@0,setsar=1[reaction_fg]",
-    "[reaction_bg][reaction_fg]overlay=(W-w)/2:(H-h)/2:format=auto[top]",
+    "[reaction_fg_src]scale=720:448:force_original_aspect_ratio=decrease,format=rgba,setsar=1[reaction_fg]",
+    `[reaction_bg][reaction_fg]overlay=(W-w)*${overlayX}:(H-h)*${overlayY}:format=auto[top]`,
     "[1:v]scale=720:832:force_original_aspect_ratio=increase,crop=720:832,setsar=1[bot]",
     "[top][bot]vstack=inputs=2:shortest=1[stack]",
   ].join(";");
@@ -52,4 +56,10 @@ export function escapeDrawText(value) {
     .replaceAll("\\", "\\\\")
     .replaceAll("'", "\\'")
     .replaceAll(":", "\\:");
+}
+
+function positionToOverlayRatio(value) {
+  const numeric = Number(value);
+  const clamped = Math.max(-100, Math.min(100, Number.isFinite(numeric) ? numeric : 0));
+  return ((clamped + 100) / 200).toFixed(3);
 }

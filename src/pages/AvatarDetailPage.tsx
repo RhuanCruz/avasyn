@@ -7,7 +7,6 @@ import {
   AvatarBubble,
   AvatarSwitcher,
   Icon,
-  KpiCard,
   Pill,
   StatusPill,
 } from "@/components/operator-ui";
@@ -19,30 +18,25 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAvatarState } from "@/hooks/useAvatarState";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
-import { invokeFunction } from "@/lib/api";
 import { createAvatarPhotoUrl, removeAvatarPhoto, uploadAvatarPhoto } from "@/lib/avatar-photo";
 import { slugifyAvatarName } from "@/lib/avatar-utils";
 import { supabase } from "@/lib/supabase";
 import type {
-  Automation,
   Avatar,
   AvatarStatus,
   ReactionVideo,
   ReelJob,
-  SocialAccount,
   SourceVideo,
 } from "@/lib/types";
 
 type AvatarSnapshot = {
   avatar: Avatar | null;
-  accounts: SocialAccount[];
   sourceVideos: SourceVideo[];
   reactionVideos: ReactionVideo[];
-  automations: Automation[];
   jobs: ReelJob[];
 };
 
-type HubTab = "overview" | "biblioteca" | "automacoes" | "sobre";
+type HubTab = "overview" | "biblioteca" | "sobre";
 
 export function AvatarDetailPage() {
   const params = useParams<{ avatarId: string }>();
@@ -55,7 +49,6 @@ export function AvatarDetailPage() {
   } = useAvatarState(avatarId);
   const [tab, setTab] = useState<HubTab>("overview");
   const [saving, setSaving] = useState(false);
-  const [syncingAccounts, setSyncingAccounts] = useState(false);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [form, setForm] = useState({
     name: "",
@@ -78,28 +71,19 @@ export function AvatarDetailPage() {
     if (!avatarId) {
       return {
         avatar: null,
-        accounts: [],
         sourceVideos: [],
         reactionVideos: [],
-        automations: [],
         jobs: [],
       };
     }
 
     const [
       avatarResult,
-      accountsResult,
       sourceVideosResult,
       reactionVideosResult,
-      automationsResult,
       jobsResult,
     ] = await Promise.all([
       supabase.from("avatars").select("*").eq("id", avatarId).maybeSingle(),
-      supabase
-        .from("social_accounts")
-        .select("*")
-        .eq("avatar_id", avatarId)
-        .order("created_at", { ascending: false }),
       supabase
         .from("source_videos")
         .select("*")
@@ -113,11 +97,6 @@ export function AvatarDetailPage() {
         .order("created_at", { ascending: false })
         .limit(8),
       supabase
-        .from("automations")
-        .select("*")
-        .eq("avatar_id", avatarId)
-        .order("created_at", { ascending: false }),
-      supabase
         .from("reel_jobs")
         .select("*")
         .eq("avatar_id", avatarId)
@@ -126,28 +105,22 @@ export function AvatarDetailPage() {
     ]);
 
     if (avatarResult.error) throw avatarResult.error;
-    if (accountsResult.error) throw accountsResult.error;
     if (sourceVideosResult.error) throw sourceVideosResult.error;
     if (reactionVideosResult.error) throw reactionVideosResult.error;
-    if (automationsResult.error) throw automationsResult.error;
     if (jobsResult.error) throw jobsResult.error;
 
     return {
       avatar: (avatarResult.data ?? null) as Avatar | null,
-      accounts: (accountsResult.data ?? []) as SocialAccount[],
       sourceVideos: (sourceVideosResult.data ?? []) as SourceVideo[],
       reactionVideos: (reactionVideosResult.data ?? []) as ReactionVideo[],
-      automations: (automationsResult.data ?? []) as Automation[],
       jobs: (jobsResult.data ?? []) as ReelJob[],
     };
   }, [avatarId]);
 
   const snapshot = useSupabaseQuery(loadSnapshot, {
     avatar: null,
-    accounts: [],
     sourceVideos: [],
     reactionVideos: [],
-    automations: [],
     jobs: [],
   });
 
@@ -204,34 +177,6 @@ export function AvatarDetailPage() {
       toast.error(error instanceof Error ? error.message : "Falha ao salvar avatar");
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function connectInstagram() {
-    if (!avatarId) return;
-    try {
-      const redirectUrl = `${window.location.origin}/avatars/${avatarId}`;
-      const response = await invokeFunction<{ url: string }>("zernio-connect-url", {
-        redirectUrl,
-      });
-      window.location.href = response.url;
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Falha ao abrir conexão");
-    }
-  }
-
-  async function syncAccounts() {
-    if (!avatarId) return;
-
-    setSyncingAccounts(true);
-    try {
-      await invokeFunction("zernio-sync-accounts", { avatarId });
-      await snapshot.refresh();
-      toast.success("Contas sincronizadas");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Falha ao sincronizar contas");
-    } finally {
-      setSyncingAccounts(false);
     }
   }
 
@@ -293,30 +238,11 @@ export function AvatarDetailPage() {
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <Pill tone="violet">formato ativo: react()</Pill>
-                  <Pill tone="neutral">{snapshot.data.accounts.length} conta(s)</Pill>
                   <Pill tone="base">{snapshot.data.sourceVideos.length} base</Pill>
                   <Pill tone="reaction">{snapshot.data.reactionVideos.length} reactions</Pill>
                 </div>
               </div>
             </div>
-
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Button onClick={() => void syncAccounts()} variant="outline">
-                <Icon name="refresh" />
-                {syncingAccounts ? "Sincronizando..." : "Sincronizar contas"}
-              </Button>
-              <Button onClick={() => void connectInstagram()}>
-                <Icon name="instagram" />
-                Conectar Instagram
-              </Button>
-            </div>
-          </div>
-
-          <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <KpiCard icon="instagram" label="Contas conectadas" sub="Canais do avatar" value={snapshot.data.accounts.length} />
-            <KpiCard icon="film" label="Videos base" sub="Biblioteca base" tone="base" value={snapshot.data.sourceVideos.length} />
-            <KpiCard icon="reaction" label="Reactions" sub="Banco react()" tone="reaction" value={snapshot.data.reactionVideos.length} />
-            <KpiCard icon="zap" label="Automacoes" sub="Rotinas configuradas" tone="violet" value={snapshot.data.automations.length} />
           </div>
 
           <div className="card card-pad mt-6" style={{ padding: 14 }}>
@@ -347,7 +273,6 @@ export function AvatarDetailPage() {
           {[
             ["overview", "Visao geral"],
             ["biblioteca", "Biblioteca"],
-            ["automacoes", "Automacoes"],
             ["sobre", "Sobre"],
           ].map(([value, label]) => (
             <button
@@ -392,35 +317,6 @@ export function AvatarDetailPage() {
               title="Reactions"
             >
               <MediaStrip kind="reaction" videos={snapshot.data.reactionVideos} />
-            </HubSection>
-          </div>
-        ) : null}
-
-        {tab === "automacoes" ? (
-          <div className="mt-4 grid gap-4">
-            <HubSection description="Rotinas de publicacao e agendamento vinculadas ao avatar." title="Automacoes">
-              {snapshot.data.automations.length === 0 ? (
-                <EmptyMini text="Nenhuma automacao configurada ainda." />
-              ) : (
-                <div className="grid gap-3 md:grid-cols-2">
-                  {snapshot.data.automations.map((automation) => (
-                    <div className="card card-pad" key={automation.id}>
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-md">{automation.posts_per_day} post(s)/dia</div>
-                        <Pill tone={automation.active ? "ok" : "neutral"} withDot>
-                          {automation.active ? "ativa" : "pausada"}
-                        </Pill>
-                      </div>
-                      <p className="mt-3 text-sm muted">
-                        Horarios: {automation.post_times.join(", ") || "sem horarios"}
-                      </p>
-                      <p className="mt-2 text-sm muted">
-                        {automation.clip_urls.length} clip(s) • {automation.reaction_pool.length} reaction(s)
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
             </HubSection>
           </div>
         ) : null}
@@ -498,10 +394,6 @@ export function AvatarDetailPage() {
             <HubSection description="Resumo rapido para orientar operacao e criacao." title="Checklist operacional">
               <div className="flex flex-col gap-2">
                 {[
-                  {
-                    ok: snapshot.data.accounts.length > 0,
-                    text: "Conta social conectada",
-                  },
                   {
                     ok: snapshot.data.sourceVideos.length > 0,
                     text: "Biblioteca base abastecida",

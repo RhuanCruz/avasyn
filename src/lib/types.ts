@@ -36,6 +36,8 @@ export type ReactionVideo = {
   name: string;
   storage_path: string;
   duration_s: number | null;
+  position_x: number;
+  position_y: number;
   created_at: string;
 };
 

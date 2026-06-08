@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -9,25 +9,20 @@ import {
   Icon,
   MediaTonePill,
   Pill,
-  StatusPill,
   formatDate,
   formatNumber,
 } from "@/components/operator-ui";
 import { StorageVideoPreview } from "@/components/VideoPreview";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
 import { useAvatarState } from "@/hooks/useAvatarState";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
-import { invokeFunction } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
-import type { MediaImport, ReactionVideo, SourceVideo } from "@/lib/types";
+import type { ReactionVideo, SourceVideo } from "@/lib/types";
 
-type AddMode = "menu" | "upload-source" | "upload-reaction" | "url" | "instagram_profile" | null;
+type AddMode = "menu" | "upload-source" | "upload-reaction" | null;
 type LibraryFilter = "all" | "source" | "reaction";
 
 type LibrarySnapshot = {
-  imports: MediaImport[];
   reactionVideos: ReactionVideo[];
   sourceVideos: SourceVideo[];
 };
@@ -45,7 +40,6 @@ export function LibraryPage() {
   const initialFilter = filterParam === "reaction" ? "reaction" : "all";
   const [addMode, setAddMode] = useState<AddMode>(null);
   const [uploading, setUploading] = useState(false);
-  const [creatingImport, setCreatingImport] = useState(false);
   const [filter, setFilter] = useState<LibraryFilter>(initialFilter);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [preview, setPreview] = useState<PreviewItem | null>(null);
@@ -65,10 +59,10 @@ export function LibraryPage() {
 
   const loadSnapshot = useCallback(async (): Promise<LibrarySnapshot> => {
     if (!selectedAvatarId) {
-      return { imports: [], reactionVideos: [], sourceVideos: [] };
+      return { reactionVideos: [], sourceVideos: [] };
     }
 
-    const [sourceResult, reactionResult, importsResult] = await Promise.all([
+    const [sourceResult, reactionResult] = await Promise.all([
       supabase
         .from("source_videos")
         .select("*")
@@ -79,27 +73,18 @@ export function LibraryPage() {
         .select("*")
         .eq("avatar_id", selectedAvatarId)
         .order("created_at", { ascending: false }),
-      supabase
-        .from("media_imports")
-        .select("*")
-        .eq("avatar_id", selectedAvatarId)
-        .order("created_at", { ascending: false })
-        .limit(8),
     ]);
 
     if (sourceResult.error) throw sourceResult.error;
     if (reactionResult.error) throw reactionResult.error;
-    if (importsResult.error) throw importsResult.error;
 
     return {
-      imports: (importsResult.data ?? []) as MediaImport[],
       reactionVideos: (reactionResult.data ?? []) as ReactionVideo[],
       sourceVideos: (sourceResult.data ?? []) as SourceVideo[],
     };
   }, [selectedAvatarId]);
 
   const snapshot = useSupabaseQuery(loadSnapshot, {
-    imports: [],
     reactionVideos: [],
     sourceVideos: [],
   });
@@ -109,14 +94,6 @@ export function LibraryPage() {
 
     const channel = supabase
       .channel(`media-library-${user.id}-${selectedAvatarId}`)
-      .on("postgres_changes", {
-        event: "*",
-        schema: "public",
-        table: "media_imports",
-        filter: `avatar_id=eq.${selectedAvatarId}`,
-      }, () => {
-        void snapshot.refresh();
-      })
       .on("postgres_changes", {
         event: "*",
         schema: "public",
@@ -184,25 +161,6 @@ export function LibraryPage() {
     } finally {
       setUploading(false);
       event.target.value = "";
-    }
-  }
-
-  async function createImport(type: "url" | "instagram_profile", input: string, limit: number) {
-    if (!selectedAvatarId) {
-      toast.error("Selecione um avatar antes de importar");
-      return;
-    }
-
-    setCreatingImport(true);
-    try {
-      await invokeFunction("create-media-import", { type, input, limit, avatarId: selectedAvatarId });
-      toast.success("Importação iniciada");
-      setAddMode(null);
-      await snapshot.refresh();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Falha ao iniciar importação");
-    } finally {
-      setCreatingImport(false);
     }
   }
 
@@ -285,11 +243,9 @@ export function LibraryPage() {
               </Button>
               {addMode ? (
                 <AddMediaPanel
-                  creating={creatingImport}
                   mode={addMode}
                   onChoose={setAddMode}
                   onClose={() => setAddMode(null)}
-                  onImport={createImport}
                   onUpload={() => fileInputRef.current?.click()}
                   uploading={uploading}
                 />
@@ -390,8 +346,6 @@ export function LibraryPage() {
             ) : null}
           </div>
         </section>
-
-        <ImportProgress imports={snapshot.data.imports} />
 
         {!selectedAvatarId ? (
           <div className="panel empty mt-4">
@@ -575,32 +529,18 @@ function MediaSection({
 }
 
 function AddMediaPanel({
-  creating,
   mode,
   onChoose,
   onClose,
-  onImport,
   onUpload,
   uploading,
 }: {
-  creating: boolean;
   mode: AddMode;
   onChoose: (mode: AddMode) => void;
   onClose: () => void;
-  onImport: (type: "url" | "instagram_profile", input: string, limit: number) => Promise<void>;
   onUpload: () => void;
   uploading: boolean;
 }) {
-  const [input, setInput] = useState("");
-  const [limit, setLimit] = useState(10);
-
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (mode === "url" || mode === "instagram_profile") {
-      void onImport(mode, input, limit);
-    }
-  }
-
   return (
     <div className="panel" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", width: 360, padding: 16, zIndex: 30 }}>
       <div className="page-header" style={{ marginBottom: 14 }}>
@@ -622,16 +562,8 @@ function AddMediaPanel({
             <Icon name="reaction" />
             Enviar reaction
           </Button>
-          <Button onClick={() => onChoose("url")} variant="outline">
-            <Icon name="link" />
-            Importar link
-          </Button>
-          <Button onClick={() => onChoose("instagram_profile")} variant="outline">
-            <Icon name="instagram" />
-            Importar perfil Instagram
-          </Button>
         </div>
-      ) : mode === "upload-source" || mode === "upload-reaction" ? (
+      ) : (
         <div className="grid gap-3">
           <p className="text-sm muted">
             {mode === "upload-source"
@@ -646,104 +578,12 @@ function AddMediaPanel({
             Voltar
           </Button>
         </div>
-      ) : (
-        <form onSubmit={submit}>
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="library-import-input">
-                {mode === "url" ? "URL do vídeo" : "Username do Instagram"}
-              </FieldLabel>
-              <Input
-                id="library-import-input"
-                onChange={(event) => setInput(event.target.value)}
-                placeholder={mode === "url" ? "https://..." : "@perfil"}
-                required
-                value={input}
-              />
-            </Field>
-            {mode === "instagram_profile" ? (
-              <Field>
-                <FieldLabel htmlFor="library-import-limit">Quantidade</FieldLabel>
-                <Input
-                  id="library-import-limit"
-                  max={50}
-                  min={1}
-                  onChange={(event) => setLimit(Number(event.target.value))}
-                  type="number"
-                  value={limit}
-                />
-                <FieldDescription>Máximo de 50 Reels por importação.</FieldDescription>
-              </Field>
-            ) : null}
-            <div className="flex gap-2">
-              <Button disabled={creating} type="submit">
-                {creating ? "Iniciando..." : "Iniciar importação"}
-              </Button>
-              <Button onClick={() => onChoose("menu")} type="button" variant="outline">
-                Voltar
-              </Button>
-            </div>
-          </FieldGroup>
-        </form>
       )}
     </div>
   );
 }
 
-function ImportProgress({ imports }: { imports: MediaImport[] }) {
-  const visibleImports = imports.filter((item) => item.status !== "error");
-
-  if (visibleImports.length === 0) return null;
-
-  return (
-    <section className="panel card-pad mt-4">
-      <div className="page-header" style={{ marginBottom: 18 }}>
-        <div>
-          <h2 className="text-lg">Importações</h2>
-          <p className="page-subtitle">Acompanhe links e perfis importados para a biblioteca base.</p>
-        </div>
-      </div>
-      <div className="grid gap-3 lg:grid-cols-2">
-        {visibleImports.map((mediaImport) => {
-          const ratio = mediaImport.total_items
-            ? Math.min(100, Math.round(((mediaImport.processed_items ?? 0) / mediaImport.total_items) * 100))
-            : mediaImport.status === "completed"
-              ? 100
-              : 10;
-          return (
-            <div className="card card-pad" key={mediaImport.id}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="col" style={{ gap: 6, minWidth: 0 }}>
-                  <span className="truncate">{mediaImport.input}</span>
-                  <span className="text-xs muted">
-                    {mediaImport.processed_items ?? 0}
-                    {mediaImport.total_items ? ` / ${mediaImport.total_items}` : ""} processados
-                  </span>
-                </div>
-                <StatusPill kind="post" status={mapImportStatus(mediaImport.status)} />
-              </div>
-              <div className="progress mt-3">
-                <span style={{ width: `${ratio}%` }} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-function mapImportStatus(status: MediaImport["status"]) {
-  if (status === "completed") return "published";
-  if (status === "partial") return "partial";
-  if (status === "error") return "failed";
-  if (status === "processing") return "scheduled";
-  return "scheduled";
-}
-
 function sourceLabel(sourceType: string) {
   if (sourceType === "upload") return "arquivo";
-  if (sourceType === "url") return "link";
-  if (sourceType === "instagram_profile") return "perfil";
-  return sourceType;
+  return "importado";
 }

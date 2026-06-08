@@ -1,13 +1,15 @@
 import {
   Dispatch,
   FormEvent,
+  PointerEvent,
   SetStateAction,
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
 import {
@@ -27,19 +29,19 @@ import { useAvatarState } from "@/hooks/useAvatarState";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { invokeFunction } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
-import type { ReactionVideo, SocialAccount, SourceVideo } from "@/lib/types";
+import type { ReactionVideo, SourceVideo } from "@/lib/types";
 
 type CreateJobsResponse = {
   jobs?: Array<{ id: string }>;
 };
 
 type EditorSnapshot = {
-  accounts: SocialAccount[];
   reactions: ReactionVideo[];
   sourceVideos: SourceVideo[];
 };
 
 export function BulkEditorPage() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const preferredAvatarId = searchParams.get("avatarId");
   const { avatars, selectedAvatar, selectedAvatarId, setSelectedAvatarId } = useAvatarState(preferredAvatarId);
@@ -49,6 +51,7 @@ export function BulkEditorPage() {
   const [overlayText, setOverlayText] = useState("Frase simples de até 3 palavras sobre o lance");
   const [creating, setCreating] = useState(false);
   const [createdJobIds, setCreatedJobIds] = useState<string[]>([]);
+  const [positioningReaction, setPositioningReaction] = useState<ReactionVideo | null>(null);
 
   useEffect(() => {
     const next = new URLSearchParams(searchParams);
@@ -61,10 +64,10 @@ export function BulkEditorPage() {
 
   const loadSnapshot = useCallback(async (): Promise<EditorSnapshot> => {
     if (!selectedAvatarId) {
-      return { accounts: [], reactions: [], sourceVideos: [] };
+      return { reactions: [], sourceVideos: [] };
     }
 
-    const [sourceResult, reactionResult, accountsResult] = await Promise.all([
+    const [sourceResult, reactionResult] = await Promise.all([
       supabase
         .from("source_videos")
         .select("*")
@@ -75,27 +78,18 @@ export function BulkEditorPage() {
         .select("*")
         .eq("avatar_id", selectedAvatarId)
         .order("created_at", { ascending: false }),
-      supabase
-        .from("social_accounts")
-        .select("*")
-        .eq("avatar_id", selectedAvatarId)
-        .eq("active", true)
-        .order("display_name"),
     ]);
 
     if (sourceResult.error) throw sourceResult.error;
     if (reactionResult.error) throw reactionResult.error;
-    if (accountsResult.error) throw accountsResult.error;
 
     return {
-      accounts: (accountsResult.data ?? []) as SocialAccount[],
       reactions: (reactionResult.data ?? []) as ReactionVideo[],
       sourceVideos: (sourceResult.data ?? []) as SourceVideo[],
     };
   }, [selectedAvatarId]);
 
   const snapshot = useSupabaseQuery(loadSnapshot, {
-    accounts: [],
     reactions: [],
     sourceVideos: [],
   });
@@ -136,6 +130,7 @@ export function BulkEditorPage() {
       const jobIds = response.jobs?.map((job) => job.id) ?? [];
       setCreatedJobIds(jobIds);
       toast.success(`${jobIds.length} job(s) enviados para renderização`);
+      navigate(`/avatars/${selectedAvatarId}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao criar jobs");
     } finally {
@@ -173,7 +168,7 @@ export function BulkEditorPage() {
           <div>
             <h1 className="page-title">Editor em massa</h1>
             <p className="page-subtitle">
-              Monte lotes do formato react(): base + reaction + texto + publicação.
+              Monte lotes do formato react(): base + reaction + texto + renderização.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -203,7 +198,7 @@ export function BulkEditorPage() {
               <div className="panel empty">
                 <div>
                   <h3>Selecione um avatar</h3>
-                  <p>O avatar define biblioteca, reactions, contas e publicação.</p>
+                  <p>O avatar define biblioteca, reactions e direção editorial.</p>
                 </div>
               </div>
             ) : (
@@ -224,6 +219,7 @@ export function BulkEditorPage() {
                   items={snapshot.data.reactions}
                   kind="reaction"
                   number="03"
+                  onPosition={setPositioningReaction}
                   onToggle={(id) => toggleId(id, setSelectedReactionIds)}
                   selectedIds={selectedReactionIds}
                   title="Reactions"
@@ -313,13 +309,21 @@ export function BulkEditorPage() {
             </StepCard>
 
             <GeneratedJobsPanel
-              accounts={snapshot.data.accounts}
               jobIds={createdJobIds}
-              onScheduled={() => setCreatedJobIds((current) => [...current])}
             />
           </div>
         </div>
       </div>
+      {positioningReaction ? (
+        <ReactionPositionModal
+          onClose={() => setPositioningReaction(null)}
+          onSaved={async () => {
+            setPositioningReaction(null);
+            await snapshot.refresh();
+          }}
+          reaction={positioningReaction}
+        />
+      ) : null}
     </>
   );
 }
@@ -360,6 +364,7 @@ function MediaPicker({
   items,
   kind,
   number,
+  onPosition,
   onToggle,
   selectedIds,
   title,
@@ -369,6 +374,7 @@ function MediaPicker({
   items: Array<SourceVideo | ReactionVideo>;
   kind: "source" | "reaction";
   number: string;
+  onPosition?: (reaction: ReactionVideo) => void;
   onToggle: (id: string) => void;
   selectedIds: string[];
   title: string;
@@ -397,6 +403,7 @@ function MediaPicker({
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {items.map((item) => {
             const selected = selectedIds.includes(item.id);
+            const reaction = item as ReactionVideo;
             return (
               <article className="card card-pad" key={item.id}>
                 <div
@@ -415,14 +422,26 @@ function MediaPicker({
                     title={item.name}
                   />
                 </div>
-                <div className="mt-3 flex items-center justify-between gap-3">
+                <div className="mt-3 flex items-start justify-between gap-3">
                   <div className="col" style={{ gap: 6, minWidth: 0 }}>
                     <span className="truncate text-sm">{item.name}</span>
                     <MediaTonePill kind={kind === "source" ? "base" : "reaction"} />
+                    {kind === "reaction" ? (
+                      <span className="text-xs muted">
+                        Posição: {Math.round(reaction.position_x ?? 0)}, {Math.round(reaction.position_y ?? 0)}
+                      </span>
+                    ) : null}
                   </div>
-                  <Button onClick={() => onToggle(item.id)} size="sm" variant={selected ? "default" : "outline"}>
-                    {selected ? "Selecionado" : "Selecionar"}
-                  </Button>
+                  <div className="flex shrink-0 flex-col gap-2">
+                    <Button onClick={() => onToggle(item.id)} size="sm" variant={selected ? "default" : "outline"}>
+                      {selected ? "Selecionado" : "Selecionar"}
+                    </Button>
+                    {kind === "reaction" && selected && onPosition ? (
+                      <Button onClick={() => onPosition(reaction)} size="sm" variant="outline">
+                        Posicionar
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
               </article>
             );
@@ -431,6 +450,247 @@ function MediaPicker({
       )}
     </StepCard>
   );
+}
+
+function ReactionPositionModal({
+  onClose,
+  onSaved,
+  reaction,
+}: {
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+  reaction: ReactionVideo;
+}) {
+  const previewRef = useRef<HTMLDivElement | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [videoSize, setVideoSize] = useState({ width: 9, height: 16 });
+  const [position, setPosition] = useState({
+    x: reaction.position_x ?? 0,
+    y: reaction.position_y ?? 0,
+  });
+  const [saving, setSaving] = useState(false);
+  const area = { width: 360, height: 224 };
+  const videoAspect = videoSize.width / videoSize.height;
+  const areaAspect = area.width / area.height;
+  const frame = videoAspect > areaAspect
+    ? { width: area.width, height: area.width / videoAspect }
+    : { width: area.height * videoAspect, height: area.height };
+  const ratioX = positionToRatio(position.x);
+  const ratioY = positionToRatio(position.y);
+  const left = (area.width - frame.width) * ratioX;
+  const top = (area.height - frame.height) * ratioY;
+
+  useEffect(() => {
+    let active = true;
+    async function loadUrl() {
+      const { data, error } = await supabase.storage
+        .from("reaction-videos")
+        .createSignedUrl(reaction.storage_path, 60 * 30);
+      if (active) setVideoUrl(error ? null : data.signedUrl);
+    }
+    void loadUrl();
+    return () => {
+      active = false;
+    };
+  }, [reaction.storage_path]);
+
+  function setAxis(axis: "x" | "y", value: number) {
+    setPosition((current) => ({ ...current, [axis]: clampPosition(value) }));
+  }
+
+  function handlePointer(event: PointerEvent<HTMLDivElement>) {
+    const bounds = previewRef.current?.getBoundingClientRect();
+    if (!bounds) return;
+
+    const scaleX = area.width / bounds.width;
+    const scaleY = area.height / (bounds.height * 0.35);
+    const pointerX = (event.clientX - bounds.left) * scaleX;
+    const pointerY = (event.clientY - bounds.top) * scaleY;
+    const maxLeft = Math.max(0, area.width - frame.width);
+    const maxTop = Math.max(0, area.height - frame.height);
+    const nextX = maxLeft === 0 ? 0 : ((pointerX - frame.width / 2) / maxLeft) * 200 - 100;
+    const nextY = maxTop === 0 ? 0 : ((pointerY - frame.height / 2) / maxTop) * 200 - 100;
+
+    setPosition({
+      x: clampPosition(nextX),
+      y: clampPosition(nextY),
+    });
+  }
+
+  async function savePosition() {
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("reaction_videos")
+        .update({
+          position_x: Math.round(position.x),
+          position_y: Math.round(position.y),
+        })
+        .eq("id", reaction.id)
+        .eq("avatar_id", reaction.avatar_id);
+      if (error) throw error;
+      toast.success("Posição da reaction salva");
+      await onSaved();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao salvar posição");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="panel"
+        onClick={(event) => event.stopPropagation()}
+        style={{ width: "100%", maxWidth: 760, padding: 20 }}
+      >
+        <div className="page-header" style={{ marginBottom: 16 }}>
+          <div>
+            <h2 className="text-lg">Posicionar reaction</h2>
+            <p className="page-subtitle">
+              Ajuste o rosto dentro da parte superior do split antes de gerar o lote.
+            </p>
+          </div>
+          <Button onClick={onClose} size="sm" variant="outline">
+            Fechar
+          </Button>
+        </div>
+
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,360px)_1fr]">
+          <div
+            className="mx-auto w-full max-w-[360px] overflow-hidden rounded-lg border border-border bg-black"
+            ref={previewRef}
+            style={{ aspectRatio: "9 / 16" }}
+          >
+            <div
+              className="relative cursor-crosshair overflow-hidden bg-black"
+              onPointerDown={handlePointer}
+              onPointerMove={(event) => {
+                if (event.buttons === 1) handlePointer(event);
+              }}
+              style={{ height: "35%" }}
+            >
+              {videoUrl ? (
+                <>
+                  <video
+                    autoPlay
+                    className="absolute inset-0 h-full w-full scale-110 object-cover opacity-70 blur-md"
+                    loop
+                    muted
+                    playsInline
+                    src={videoUrl}
+                  />
+                  <video
+                    autoPlay
+                    loop
+                    muted
+                    onLoadedMetadata={(event) => {
+                      const video = event.currentTarget;
+                      setVideoSize({
+                        width: video.videoWidth || 9,
+                        height: video.videoHeight || 16,
+                      });
+                    }}
+                    playsInline
+                    src={videoUrl}
+                    style={{
+                      height: `${frame.height}px`,
+                      left: `${left}px`,
+                      position: "absolute",
+                      top: `${top}px`,
+                      width: `${frame.width}px`,
+                    }}
+                  />
+                </>
+              ) : (
+                <div className="flex h-full items-center justify-center text-sm muted">
+                  Carregando reaction...
+                </div>
+              )}
+            </div>
+            <div className="relative flex items-center justify-center bg-[var(--surface)]" style={{ height: "65%" }}>
+              <div
+                style={{
+                  background: "rgba(0,0,0,0.76)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 10,
+                  color: "white",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  padding: "10px 12px",
+                  position: "absolute",
+                  textAlign: "center",
+                  top: -22,
+                }}
+              >
+                texto da divisão
+              </div>
+              <span className="text-sm muted">vídeo base 65%</span>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <div>
+              <div className="text-md">{reaction.name}</div>
+              <p className="page-subtitle">
+                Arraste o vídeo no topo ou use os controles abaixo. O render final usa esses mesmos valores.
+              </p>
+            </div>
+
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor="reaction-position-x">Horizontal</FieldLabel>
+                <Input
+                  id="reaction-position-x"
+                  max={100}
+                  min={-100}
+                  onChange={(event) => setAxis("x", Number(event.target.value))}
+                  step={1}
+                  type="range"
+                  value={position.x}
+                />
+                <div className="text-xs muted">{Math.round(position.x)}</div>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="reaction-position-y">Vertical</FieldLabel>
+                <Input
+                  id="reaction-position-y"
+                  max={100}
+                  min={-100}
+                  onChange={(event) => setAxis("y", Number(event.target.value))}
+                  step={1}
+                  type="range"
+                  value={position.y}
+                />
+                <div className="text-xs muted">{Math.round(position.y)}</div>
+              </Field>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={() => setPosition({ x: 0, y: 0 })} type="button" variant="outline">
+                  Centralizar
+                </Button>
+                <Button disabled={saving} onClick={() => void savePosition()} type="button">
+                  {saving ? "Salvando..." : "Salvar posição"}
+                </Button>
+              </div>
+            </FieldGroup>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function positionToRatio(value: number) {
+  return (clampPosition(value) + 100) / 200;
+}
+
+function clampPosition(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(-100, Math.min(100, value));
 }
 
 function SelectionSummary({

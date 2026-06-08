@@ -176,9 +176,7 @@ export function GeneratePage() {
         <div className="flex flex-col gap-4">
           <ClipPreviewList urls={previewUrls} />
           <GeneratedJobsPanel
-            accounts={accounts.data}
             jobIds={createdJobIds}
-            onScheduled={() => setCreatedJobIds((current) => [...current])}
           />
         </div>
       </section>

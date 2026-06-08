@@ -128,12 +128,16 @@ async function processJob(jobId) {
       }));
     }
 
+    const reactionPositionX = job.reaction_videos.position_x ?? 0;
+    const reactionPositionY = job.reaction_videos.position_y ?? 0;
     await downloadStorageFile("reaction-videos", job.reaction_videos.storage_path, reactionPath);
 
     await runFfmpegWithDrawTextFallback({
       clipPath,
       outputPath,
       overlayText: job.overlay_text,
+      reactionPositionX,
+      reactionPositionY,
       reactionPath,
     });
 
@@ -179,7 +183,7 @@ async function findJob(jobId) {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     const { data, error } = await supabase
       .from("reel_jobs")
-      .select("*, reaction_videos(storage_path), source_videos(storage_path)")
+      .select("*, reaction_videos(storage_path, position_x, position_y), source_videos(storage_path)")
       .eq("id", jobId)
       .maybeSingle();
 
@@ -501,6 +505,8 @@ async function runFfmpegWithDrawTextFallback({
   clipPath,
   outputPath,
   overlayText,
+  reactionPositionX,
+  reactionPositionY,
   reactionPath,
 }) {
   try {
@@ -508,6 +514,8 @@ async function runFfmpegWithDrawTextFallback({
       clipPath,
       outputPath,
       overlayText,
+      reactionPositionX,
+      reactionPositionY,
       reactionPath,
       withDrawText: true,
     }));
@@ -521,6 +529,8 @@ async function runFfmpegWithDrawTextFallback({
       clipPath,
       outputPath,
       overlayText,
+      reactionPositionX,
+      reactionPositionY,
       reactionPath,
       withDrawText: false,
     }));

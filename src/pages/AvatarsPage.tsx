@@ -77,7 +77,7 @@ export function AvatarsPage() {
           name: name.trim(),
           slug,
           status,
-          primary_platform: "instagram",
+          primary_platform: "manual",
           persona_summary: personaSummary.trim() || null,
           photo_path: uploadedPhotoPath,
         })
@@ -148,7 +148,7 @@ export function AvatarsPage() {
           <div>
             <h1 className="page-title">Avatares</h1>
             <p className="page-subtitle">
-              Cada avatar concentra persona, contas sociais, biblioteca, automacoes e formatos.
+              Cada avatar concentra persona, biblioteca de mídia e formatos de produção.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -293,7 +293,7 @@ export function AvatarsPage() {
             <div className="page-header" style={{ marginBottom: 18 }}>
               <div>
                 <h2 className="text-lg">Novo avatar</h2>
-                <p className="page-subtitle">Crie uma unidade editorial para operar conteudo e automacoes.</p>
+                <p className="page-subtitle">Crie uma unidade editorial para organizar mídia e produção.</p>
               </div>
               <Button onClick={() => setShowCreate(false)} size="sm" variant="outline">
                 <Icon name="x" />
@@ -379,7 +379,6 @@ function AvatarCard({
   selected: boolean;
 }) {
   const [colorStart, colorEnd] = colorForAvatar(avatar.id);
-  const platform = avatar.primary_platform || "instagram";
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -434,7 +433,7 @@ function AvatarCard({
 
       <div className="avatar-card-footer">
         <div className="col" style={{ gap: 4, minWidth: 0 }}>
-          <span className="mono text-xs muted truncate">{platform}</span>
+          <span className="mono text-xs muted truncate">react()</span>
           {selected ? <Pill tone="violet">ativo no filtro</Pill> : null}
         </div>
         <Button onClick={() => onSelect(avatar.id)} size="sm" variant={selected ? "default" : "outline"}>

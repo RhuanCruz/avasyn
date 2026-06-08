@@ -17,12 +17,11 @@ import { useAvatarState } from "@/hooks/useAvatarState";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { invokeFunction } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
-import type { Avatar, PostHistory, ReelJob } from "@/lib/types";
+import type { Avatar, ReelJob } from "@/lib/types";
 
 type DashboardSnapshot = {
   avatars: Avatar[];
   jobs: ReelJob[];
-  history: PostHistory[];
 };
 
 export function DashboardPage() {
@@ -40,33 +39,24 @@ export function DashboardPage() {
       .select("*")
       .order("created_at", { ascending: false })
       .limit(25);
-    const historyQuery = supabase
-      .from("post_history")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(10);
 
     if (selectedAvatarId) {
       jobsQuery.eq("avatar_id", selectedAvatarId);
-      historyQuery.eq("avatar_id", selectedAvatarId);
     }
 
-    const [jobsResult, historyResult] = await Promise.all([jobsQuery, historyQuery]);
+    const jobsResult = await jobsQuery;
 
     if (jobsResult.error) throw jobsResult.error;
-    if (historyResult.error) throw historyResult.error;
 
     return {
       avatars,
       jobs: (jobsResult.data ?? []) as ReelJob[],
-      history: (historyResult.data ?? []) as PostHistory[],
     };
   }, [avatars, selectedAvatarId]);
 
   const snapshot = useSupabaseQuery(loadSnapshot, {
     avatars: [],
     jobs: [],
-    history: [],
   });
 
   useEffect(() => {
@@ -162,7 +152,7 @@ export function DashboardPage() {
           <div>
             <h1 className="page-title">Dashboard operacional</h1>
             <p className="page-subtitle">
-              Visao global da fila, historico e saude do workspace
+              Visao global da fila de renderização e saude do workspace
               {selectedAvatar ? ` filtrada por ${selectedAvatar.name}.` : "."}
             </p>
           </div>
@@ -188,14 +178,14 @@ export function DashboardPage() {
           <KpiCard
             icon="refresh"
             label="Em processamento"
-            sub="Renderizando ou enviando"
+            sub="Renderizando vídeos"
             tone="info"
-            value={(counts.processing ?? 0) + (counts.posting ?? 0)}
+            value={counts.processing ?? 0}
           />
           <KpiCard
             icon="check-circle"
             label="Renderizados"
-            sub="Prontos para publicar"
+            sub="Prontos para revisar"
             tone="ok"
             value={counts.rendered ?? 0}
           />
@@ -293,7 +283,7 @@ export function DashboardPage() {
                   <div className="empty" style={{ padding: "28px 12px" }}>
                     <div>
                       <h3>Nenhum avatar ainda</h3>
-                      <p>Crie o primeiro avatar para organizar contas, biblioteca e formatos.</p>
+                      <p>Crie o primeiro avatar para organizar biblioteca e formatos.</p>
                     </div>
                   </div>
                 ) : (
@@ -312,43 +302,6 @@ export function DashboardPage() {
                       </div>
                       <StatusPill kind="avatar" status={avatar.status} />
                     </Link>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div className="panel card-pad">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-lg">Historico</h2>
-                  <p className="page-subtitle">Posts enviados ou agendados recentemente.</p>
-                </div>
-                <Pill tone="violet">{snapshot.data.history.length} eventos</Pill>
-              </div>
-              <div className="mt-4 flex flex-col gap-2">
-                {snapshot.data.history.length === 0 ? (
-                  <div className="empty" style={{ padding: "28px 12px" }}>
-                    <div>
-                      <h3>Sem historico ainda</h3>
-                      <p>Os envios publicados vao aparecer aqui.</p>
-                    </div>
-                  </div>
-                ) : (
-                  snapshot.data.history.map((item) => (
-                    <div className="card card-pad" key={item.id} style={{ padding: 12 }}>
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="col" style={{ gap: 4, minWidth: 0 }}>
-                          <span className="truncate mono">{item.job_id}</span>
-                          <span className="text-xs muted">{formatDate(item.posted_at ?? item.created_at)}</span>
-                        </div>
-                        <StatusPill kind="post" status={item.status} />
-                      </div>
-                      {item.error_message ? (
-                        <p className="mt-2 text-xs" style={{ color: "var(--err)" }}>
-                          {item.error_message}
-                        </p>
-                      ) : null}
-                    </div>
                   ))
                 )}
               </div>

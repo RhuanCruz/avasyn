@@ -254,9 +254,7 @@ export function CuratePage() {
           </Card>
 
           <GeneratedJobsPanel
-            accounts={accounts.data}
             jobIds={createdJobIds}
-            onScheduled={() => setCreatedJobIds((current) => [...current])}
           />
         </div>
       </section>
