@@ -16,7 +16,7 @@ describe("createFfmpegArgs", () => {
     expect(args.join(" ")).toContain("[top][bot]vstack=inputs=2:shortest=1[stack]");
   });
 
-  test("renders reaction at 40 percent and clip at 60 percent", () => {
+  test("renders reaction at 35 percent and clip at 65 percent", () => {
     const args = createFfmpegArgs({
       clipPath: "/tmp/clip.mp4",
       outputPath: "/tmp/output.mp4",
@@ -26,9 +26,9 @@ describe("createFfmpegArgs", () => {
     });
     const filter = args[args.indexOf("-filter_complex") + 1];
 
-    expect(filter).toContain("[0:v]scale=720:512:force_original_aspect_ratio=increase,crop=720:512");
-    expect(filter).toContain("[1:v]scale=720:768:force_original_aspect_ratio=increase,crop=720:768");
-    expect(filter).toContain("y=498");
+    expect(filter).toContain("[0:v]scale=720:448:force_original_aspect_ratio=increase,crop=720:448");
+    expect(filter).toContain("[1:v]scale=720:832:force_original_aspect_ratio=increase,crop=720:832");
+    expect(filter).toContain("y=434");
   });
 
   test("maps audio from the clip instead of reaction", () => {
