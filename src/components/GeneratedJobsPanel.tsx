@@ -1,16 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { StatusBadge } from "@/components/StatusBadge";
+import { Icon, StatusPill, formatDate } from "@/components/operator-ui";
 import { StorageVideoPreview } from "@/components/VideoPreview";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -60,41 +53,40 @@ export function GeneratedJobsPanel({
     return () => window.clearInterval(interval);
   }, [jobIds.length, refreshJobs]);
 
-  if (jobIds.length === 0) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>2. Agendar postagem</CardTitle>
-          <CardDescription>
-            Depois da renderização, o vídeo final aparece aqui para agendar.
-          </CardDescription>
-        </CardHeader>
-      </Card>
-    );
-  }
-
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>2. Vídeos gerados e agendamento</CardTitle>
-        <CardDescription>
-          Aguarde o status renderizado, confira o vídeo final e escolha conta/data.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-5">
-        {jobs.map((job) => (
-          <GeneratedJobCard
-            accounts={accounts}
-            job={job}
-            key={job.id}
-            onScheduled={() => {
-              void refreshJobs();
-              onScheduled();
-            }}
-          />
-        ))}
-      </CardContent>
-    </Card>
+    <section className="panel card-pad">
+      <div className="page-header" style={{ marginBottom: 18 }}>
+        <div>
+          <h2 className="text-lg">05. Vídeos gerados e publicação</h2>
+          <p className="page-subtitle">
+            Aguarde a renderização, revise o vídeo final e só então escolha conta e agenda.
+          </p>
+        </div>
+      </div>
+
+      {jobIds.length === 0 ? (
+        <div className="empty" style={{ padding: "40px 12px" }}>
+          <div>
+            <h3>Nenhum job criado ainda</h3>
+            <p>Os vídeos renderizados vão aparecer aqui para publicação ou agendamento.</p>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {jobs.map((job) => (
+            <GeneratedJobCard
+              accounts={accounts}
+              job={job}
+              key={job.id}
+              onScheduled={() => {
+                void refreshJobs();
+                onScheduled();
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -131,27 +123,48 @@ function GeneratedJobCard({
   const canSchedule = job.status === "rendered" && Boolean(job.output_path);
 
   return (
-    <div className="flex flex-col gap-4 rounded-md border border-border p-4">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="truncate text-sm font-medium">{job.clip_url}</p>
+    <div className="card card-pad">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="col" style={{ gap: 8, minWidth: 0, flex: 1 }}>
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusPill kind="job" status={job.status} />
+            <span className="text-xs mono muted">{formatDate(job.created_at)}</span>
+          </div>
+          <div className="truncate text-sm">{job.clip_url}</div>
           {job.error_message ? (
-            <p className="mt-1 text-sm text-muted-foreground">{job.error_message}</p>
+            <div className="text-sm" style={{ color: "var(--err)" }}>
+              {job.error_message}
+            </div>
           ) : null}
         </div>
-        <StatusBadge status={job.status} />
+        <div className="flex items-center gap-2">
+          {job.platform_post_url ? (
+            <a
+              className="inline-flex h-10 items-center rounded-md border border-border px-4 text-sm"
+              href={job.platform_post_url}
+              rel="noreferrer"
+              target="_blank"
+            >
+              <Icon name="eye" />
+              Ver post
+            </a>
+          ) : null}
+        </div>
       </div>
 
-      <StorageVideoPreview
-        bucket="generated-reels"
-        path={job.output_path}
-        title="Vídeo gerado"
-      />
+      <div className="mt-4">
+        <StorageVideoPreview
+          aspect="reel"
+          bucket="generated-reels"
+          path={job.output_path}
+          title="Vídeo gerado"
+        />
+      </div>
 
       {canSchedule ? (
-        <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
+        <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_1fr_auto] xl:items-end">
           <Field>
-            <FieldLabel htmlFor={`account-${job.id}`}>Conta</FieldLabel>
+            <FieldLabel htmlFor={`account-${job.id}`}>Conta de destino</FieldLabel>
             <Select
               id={`account-${job.id}`}
               onChange={(event) => setAccountId(event.target.value)}
@@ -174,13 +187,14 @@ function GeneratedJobCard({
               type="datetime-local"
               value={scheduledFor}
             />
-            <FieldDescription>Vazio publica imediatamente.</FieldDescription>
+            <FieldDescription>Deixe vazio para publicar imediatamente.</FieldDescription>
           </Field>
           <Button
             disabled={!accountId || submitting}
             onClick={() => void schedulePost()}
           >
-            {submitting ? "Agendando..." : scheduledFor ? "Agendar" : "Publicar"}
+            <Icon name="calendar" />
+            {submitting ? "Enviando..." : scheduledFor ? "Agendar" : "Publicar"}
           </Button>
         </div>
       ) : null}

@@ -1,5 +1,9 @@
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
-import { createServiceClient, getAuthenticatedUser } from "../_shared/supabase.ts";
+import {
+  createServiceClient,
+  getAuthenticatedUser,
+  resolveOwnedAvatar,
+} from "../_shared/supabase.ts";
 
 Deno.serve(async (request) => {
   const options = handleOptions(request);
@@ -11,6 +15,7 @@ Deno.serve(async (request) => {
     const authorization = request.headers.get("Authorization");
     const body = await request.json();
     const clipUrls = body.clipUrls as string[];
+    const avatar = await resolveOwnedAvatar(service, user.id, body.avatarId);
 
     if (!Array.isArray(clipUrls) || clipUrls.length === 0) {
       throw new Error("clipUrls is required");
@@ -21,11 +26,13 @@ Deno.serve(async (request) => {
       .select("id")
       .eq("id", body.reactionId)
       .eq("user_id", user.id)
+      .eq("avatar_id", avatar.id)
       .single();
     if (reactionError || !reaction) throw new Error("Invalid reaction");
 
     const rows = clipUrls.map((clipUrl) => ({
       user_id: user.id,
+      avatar_id: avatar.id,
       account_id: null,
       reaction_id: body.reactionId,
       clip_url: clipUrl,

@@ -40,3 +40,40 @@ export async function getAuthenticatedUser(request: Request) {
 
   return data.user;
 }
+
+export async function resolveOwnedAvatar(
+  service: ReturnType<typeof createServiceClient>,
+  userId: string,
+  avatarId: unknown,
+) {
+  const requestedAvatarId = String(avatarId ?? "").trim();
+
+  if (requestedAvatarId) {
+    const { data, error } = await service
+      .from("avatars")
+      .select("id,name")
+      .eq("id", requestedAvatarId)
+      .eq("user_id", userId)
+      .single();
+
+    if (error || !data) {
+      throw new Error("Invalid avatar");
+    }
+
+    return data;
+  }
+
+  const { data, error } = await service
+    .from("avatars")
+    .select("id,name")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .single();
+
+  if (error || !data) {
+    throw new Error("Avatar not found");
+  }
+
+  return data;
+}

@@ -6,15 +6,12 @@ import { Toaster } from "sonner";
 import { AuthProvider } from "@/auth/AuthContext";
 import { ProtectedRoute } from "@/auth/ProtectedRoute";
 import { AppShell } from "@/components/AppShell";
-import { AccountsPage } from "@/pages/AccountsPage";
-import { AutomationsPage } from "@/pages/AutomationsPage";
+import { AvatarDetailPage } from "@/pages/AvatarDetailPage";
+import { AvatarsPage } from "@/pages/AvatarsPage";
 import { BulkEditorPage } from "@/pages/BulkEditorPage";
-import { CuratePage } from "@/pages/CuratePage";
 import { DashboardPage } from "@/pages/DashboardPage";
-import { GeneratePage } from "@/pages/GeneratePage";
 import { LoginPage } from "@/pages/LoginPage";
 import { LibraryPage } from "@/pages/LibraryPage";
-import { ReactionsPage } from "@/pages/ReactionsPage";
 import "@/index.css";
 
 const router = createBrowserRouter([
@@ -26,13 +23,10 @@ const router = createBrowserRouter([
         element: <AppShell />,
         children: [
           { path: "/", element: <DashboardPage /> },
-          { path: "/reactions", element: <ReactionsPage /> },
           { path: "/library", element: <LibraryPage /> },
-          { path: "/accounts", element: <AccountsPage /> },
-          { path: "/generate", element: <GeneratePage /> },
           { path: "/bulk-editor", element: <BulkEditorPage /> },
-          { path: "/curate", element: <CuratePage /> },
-          { path: "/automations", element: <AutomationsPage /> },
+          { path: "/avatars", element: <AvatarsPage /> },
+          { path: "/avatars/:avatarId", element: <AvatarDetailPage /> },
         ],
       },
     ],

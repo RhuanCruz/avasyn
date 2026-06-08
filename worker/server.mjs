@@ -364,6 +364,7 @@ async function storeImportedVideo(mediaImport, candidate, workdir) {
   const metadata = candidate.metadata ?? {};
   const row = {
     user_id: mediaImport.user_id,
+    avatar_id: mediaImport.avatar_id,
     name: String(metadata.title ?? metadata.description ?? storageId).slice(0, 240),
     storage_path: videoStoragePath,
     duration_s: numberOrNull(metadata.duration),

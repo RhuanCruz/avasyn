@@ -38,6 +38,7 @@ Deno.serve(async (request) => {
         .from("reel_jobs")
         .insert({
           user_id: automation.user_id,
+          avatar_id: automation.avatar_id,
           automation_id: automation.id,
           account_id: automation.account_id,
           clip_url: clipUrl,

@@ -4,8 +4,18 @@ export async function invokeFunction<TResponse>(
   name: string,
   body?: Record<string, unknown>,
 ): Promise<TResponse> {
+  const { data: sessionResult } = await supabase.auth.getSession();
+  const accessToken = sessionResult.session?.access_token;
+
+  if (!accessToken) {
+    throw new Error("Sessão expirada. Faça login novamente.");
+  }
+
   const { data, error } = await supabase.functions.invoke<TResponse>(name, {
     body,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
   });
 
   if (error) {

@@ -1,5 +1,9 @@
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
-import { createServiceClient, getAuthenticatedUser } from "../_shared/supabase.ts";
+import {
+  createServiceClient,
+  getAuthenticatedUser,
+  resolveOwnedAvatar,
+} from "../_shared/supabase.ts";
 import { zernioRequest } from "../_shared/zernio.ts";
 
 type ZernioAccount = {
@@ -23,6 +27,8 @@ Deno.serve(async (request) => {
   try {
     const user = await getAuthenticatedUser(request);
     const service = createServiceClient();
+    const body = await request.json().catch(() => ({}));
+    const avatar = await resolveOwnedAvatar(service, user.id, body.avatarId);
     const profileId = Deno.env.get("ZERNIO_PROFILE_ID");
     if (!profileId) throw new Error("Missing ZERNIO_PROFILE_ID");
 
@@ -48,6 +54,7 @@ Deno.serve(async (request) => {
       })
       .map((account) => ({
         user_id: user.id,
+        avatar_id: avatar.id,
         zernio_profile_id: profileId,
         zernio_account_id: account._id ?? account.id ?? account.accountId,
         platform: "instagram",

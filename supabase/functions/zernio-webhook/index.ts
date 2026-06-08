@@ -51,13 +51,14 @@ Deno.serve(async (request) => {
 
       const { data: jobs } = await service
         .from("reel_jobs")
-        .select("id,user_id,account_id")
+        .select("id,user_id,avatar_id,account_id")
         .eq("zernio_post_id", zernioPostId);
 
       for (const job of jobs ?? []) {
         await service.from("post_history").upsert(
           {
             user_id: job.user_id,
+            avatar_id: job.avatar_id,
             job_id: job.id,
             account_id: job.account_id,
             zernio_post_id: zernioPostId,

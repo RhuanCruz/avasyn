@@ -3,29 +3,29 @@ import {
   FormEvent,
   SetStateAction,
   useCallback,
+  useEffect,
   useMemo,
   useState,
 } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
-import { GeneratedJobsPanel } from "@/components/GeneratedJobsPanel";
-import { PageHeader } from "@/components/PageHeader";
-import { StorageVideoPreview } from "@/components/VideoPreview";
-import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  AppTopbar,
+  AvatarSwitcher,
+  Icon,
+  MediaTonePill,
+  Pill,
+} from "@/components/operator-ui";
+import { GeneratedJobsPanel } from "@/components/GeneratedJobsPanel";
+import { StorageVideoPreview } from "@/components/VideoPreview";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { useAvatarState } from "@/hooks/useAvatarState";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { invokeFunction } from "@/lib/api";
-import { cn } from "@/lib/cn";
 import { supabase } from "@/lib/supabase";
 import type { ReactionVideo, SocialAccount, SourceVideo } from "@/lib/types";
 
@@ -33,64 +33,101 @@ type CreateJobsResponse = {
   jobs?: Array<{ id: string }>;
 };
 
+type EditorSnapshot = {
+  accounts: SocialAccount[];
+  reactions: ReactionVideo[];
+  sourceVideos: SourceVideo[];
+};
+
 export function BulkEditorPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const preferredAvatarId = searchParams.get("avatarId");
+  const { avatars, selectedAvatar, selectedAvatarId, setSelectedAvatarId } = useAvatarState(preferredAvatarId);
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
   const [selectedReactionIds, setSelectedReactionIds] = useState<string[]>([]);
-  const [caption, setCaption] = useState("Melhor lance do dia #futebol");
-  const [overlayText, setOverlayText] = useState("MELHOR LANCE DO DIA");
+  const [caption, setCaption] = useState("Legenda curta de futebol com tom de reação");
+  const [overlayText, setOverlayText] = useState("Frase simples de até 3 palavras sobre o lance");
   const [creating, setCreating] = useState(false);
   const [createdJobIds, setCreatedJobIds] = useState<string[]>([]);
 
-  const loadSourceVideos = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("source_videos")
-      .select("*")
-      .order("created_at", { ascending: false });
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    if (selectedAvatarId) next.set("avatarId", selectedAvatarId);
+    else next.delete("avatarId");
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, selectedAvatarId, setSearchParams]);
 
-    if (error) throw error;
-    return (data ?? []) as SourceVideo[];
-  }, []);
+  const loadSnapshot = useCallback(async (): Promise<EditorSnapshot> => {
+    if (!selectedAvatarId) {
+      return { accounts: [], reactions: [], sourceVideos: [] };
+    }
 
-  const loadReactions = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("reaction_videos")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const [sourceResult, reactionResult, accountsResult] = await Promise.all([
+      supabase
+        .from("source_videos")
+        .select("*")
+        .eq("avatar_id", selectedAvatarId)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("reaction_videos")
+        .select("*")
+        .eq("avatar_id", selectedAvatarId)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("social_accounts")
+        .select("*")
+        .eq("avatar_id", selectedAvatarId)
+        .eq("active", true)
+        .order("display_name"),
+    ]);
 
-    if (error) throw error;
-    return (data ?? []) as ReactionVideo[];
-  }, []);
+    if (sourceResult.error) throw sourceResult.error;
+    if (reactionResult.error) throw reactionResult.error;
+    if (accountsResult.error) throw accountsResult.error;
 
-  const loadAccounts = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("social_accounts")
-      .select("*")
-      .eq("active", true)
-      .order("display_name");
+    return {
+      accounts: (accountsResult.data ?? []) as SocialAccount[],
+      reactions: (reactionResult.data ?? []) as ReactionVideo[],
+      sourceVideos: (sourceResult.data ?? []) as SourceVideo[],
+    };
+  }, [selectedAvatarId]);
 
-    if (error) throw error;
-    return (data ?? []) as SocialAccount[];
-  }, []);
+  const snapshot = useSupabaseQuery(loadSnapshot, {
+    accounts: [],
+    reactions: [],
+    sourceVideos: [],
+  });
 
-  const sourceVideos = useSupabaseQuery(loadSourceVideos, []);
-  const reactions = useSupabaseQuery(loadReactions, []);
-  const accounts = useSupabaseQuery(loadAccounts, []);
   const totalCombinations = selectedSourceIds.length * selectedReactionIds.length;
   const selectedSourceVideos = useMemo(
-    () => sourceVideos.data.filter((video) => selectedSourceIds.includes(video.id)),
-    [sourceVideos.data, selectedSourceIds],
+    () => snapshot.data.sourceVideos.filter((video) => selectedSourceIds.includes(video.id)),
+    [selectedSourceIds, snapshot.data.sourceVideos],
   );
   const selectedReactions = useMemo(
-    () => reactions.data.filter((reaction) => selectedReactionIds.includes(reaction.id)),
-    [reactions.data, selectedReactionIds],
+    () => snapshot.data.reactions.filter((reaction) => selectedReactionIds.includes(reaction.id)),
+    [selectedReactionIds, snapshot.data.reactions],
   );
+
+  useEffect(() => {
+    setSelectedSourceIds([]);
+    setSelectedReactionIds([]);
+    setCreatedJobIds([]);
+  }, [selectedAvatarId]);
 
   async function handleCreateJobs(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!selectedAvatarId) {
+      toast.error("Selecione um avatar");
+      return;
+    }
+
     setCreating(true);
 
     try {
       const response = await invokeFunction<CreateJobsResponse>("create-bulk-jobs", {
+        avatarId: selectedAvatarId,
         sourceVideoIds: selectedSourceIds,
         reactionIds: selectedReactionIds,
         caption,
@@ -108,64 +145,120 @@ export function BulkEditorPage() {
 
   return (
     <>
-      <PageHeader
-        action={
-          <Link
-            className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-            to="/library"
-          >
-            Abrir biblioteca
-          </Link>
+      <AppTopbar
+        actions={
+          <>
+            <AvatarSwitcher
+              avatars={avatars}
+              includeAll={false}
+              onChange={setSelectedAvatarId}
+              selectedAvatarId={selectedAvatarId}
+            />
+            <Link
+              className={buttonVariants({ variant: "outline" })}
+              to={selectedAvatarId ? `/avatars/${selectedAvatarId}` : "/avatars"}
+            >
+              Abrir avatar
+            </Link>
+          </>
         }
-        description="Selecione vídeos da biblioteca e gere combinações com suas reactions."
-        title="Editor em massa"
+        crumbs={[
+          { label: "Workspace", icon: "home", href: "/" },
+          { label: "Editor em massa", icon: "wand" },
+        ]}
       />
 
-      <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <div className="flex flex-col gap-4">
-          <SourceVideoGrid
-            error={sourceVideos.error}
-            onToggle={(id) => toggleId(id, setSelectedSourceIds)}
-            selectedIds={selectedSourceIds}
-            videos={sourceVideos.data}
-          />
-          <ReactionSelection
-            onToggle={(id) => toggleId(id, setSelectedReactionIds)}
-            reactions={reactions.data}
-            selectedIds={selectedReactionIds}
-          />
+      <div className="page">
+        <div className="page-header">
+          <div>
+            <h1 className="page-title">Editor em massa</h1>
+            <p className="page-subtitle">
+              Monte lotes do formato react(): base + reaction + texto + publicação.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {selectedAvatar ? <Pill tone="violet">{selectedAvatar.name}</Pill> : null}
+            <Link className={buttonVariants({ variant: "outline" })} to="/library">
+              Biblioteca
+            </Link>
+          </div>
         </div>
 
-        <div className="flex flex-col gap-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Criar combinações</CardTitle>
-              <CardDescription>
-                {totalCombinations === 0
-                  ? "Selecione vídeos e reactions para calcular a fila."
-                  : `${selectedSourceIds.length} vídeos x ${selectedReactionIds.length} reactions = ${totalCombinations} jobs.`}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
+        <div className="grid gap-4 xl:grid-cols-[1.35fr_0.85fr]">
+          <div className="flex flex-col gap-4">
+            <StepCard
+              description="Todo job criado aqui pertence ao avatar selecionado."
+              number="01"
+              title="Escolha o avatar"
+            >
+              <AvatarSwitcher
+                avatars={avatars}
+                includeAll={false}
+                onChange={setSelectedAvatarId}
+                selectedAvatarId={selectedAvatarId}
+              />
+            </StepCard>
+
+            {!selectedAvatarId ? (
+              <div className="panel empty">
+                <div>
+                  <h3>Selecione um avatar</h3>
+                  <p>O avatar define biblioteca, reactions, contas e publicação.</p>
+                </div>
+              </div>
+            ) : (
+              <>
+                <MediaPicker
+                  emptyCtaHref="/library"
+                  emptyText="Nenhum vídeo base encontrado neste avatar."
+                  items={snapshot.data.sourceVideos}
+                  kind="source"
+                  number="02"
+                  onToggle={(id) => toggleId(id, setSelectedSourceIds)}
+                  selectedIds={selectedSourceIds}
+                  title="Vídeos base"
+                />
+                <MediaPicker
+                  emptyCtaHref={`/library?avatarId=${selectedAvatarId}&kind=reaction`}
+                  emptyText="Nenhuma reaction encontrada neste avatar."
+                  items={snapshot.data.reactions}
+                  kind="reaction"
+                  number="03"
+                  onToggle={(id) => toggleId(id, setSelectedReactionIds)}
+                  selectedIds={selectedReactionIds}
+                  title="Reactions"
+                />
+              </>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <StepCard
+              description={
+                totalCombinations === 0
+                  ? "Selecione vídeos base e reactions para montar o lote."
+                  : `${selectedSourceIds.length} vídeo(s) base x ${selectedReactionIds.length} reaction(s) = ${totalCombinations} job(s) com textos únicos por IA.`
+              }
+              number="04"
+              title="Configuração editorial"
+            >
               <form onSubmit={handleCreateJobs}>
                 <FieldGroup>
-                  <SelectedSummary
-                    reactions={selectedReactions}
-                    sourceVideos={selectedSourceVideos}
-                  />
+                  <SelectionSummary reactions={selectedReactions} sourceVideos={selectedSourceVideos} />
 
                   <Field>
-                    <FieldLabel htmlFor="bulk-caption">Caption</FieldLabel>
+                    <FieldLabel htmlFor="bulk-caption">Direção da legenda</FieldLabel>
                     <Textarea
                       id="bulk-caption"
                       onChange={(event) => setCaption(event.target.value)}
                       required
+                      rows={5}
                       value={caption}
                     />
                   </Field>
 
                   <Field>
-                    <FieldLabel htmlFor="bulk-overlay">Texto da divisória</FieldLabel>
+                    <FieldLabel htmlFor="bulk-overlay">Direção do texto da divisão</FieldLabel>
                     <Input
                       id="bulk-overlay"
                       onChange={(event) => setOverlayText(event.target.value)}
@@ -173,151 +266,174 @@ export function BulkEditorPage() {
                       value={overlayText}
                     />
                     <FieldDescription>
-                      O agendamento continua depois que cada vídeo for renderizado.
+                      A IA gera uma frase final única com no máximo 3 palavras para cada vídeo.
                     </FieldDescription>
                   </Field>
+
+                  <div className="card card-pad" style={{ padding: 12 }}>
+                    <div className="text-xs muted">direção para IA</div>
+                    <div className="mt-3 grid gap-3">
+                      <div className="thumb" style={{ maxWidth: 260, marginInline: "auto" }}>
+                        <div className="thumb-art" style={{ color: "var(--text-muted)" }}>
+                          PREVIEW
+                        </div>
+                        <div style={{ position: "absolute", top: "43%", insetInline: 16 }}>
+                          <div
+                            style={{
+                              background: "rgba(0,0,0,0.76)",
+                              border: "1px solid var(--border)",
+                              borderRadius: 10,
+                              padding: "10px 12px",
+                              textAlign: "center",
+                              fontSize: 12,
+                              fontWeight: 600,
+                              letterSpacing: "0.04em",
+                            }}
+                          >
+                            {overlayText || "Direção do overlay"}
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-sm muted">{caption}</p>
+                      <p className="text-xs muted">
+                        Os textos finais são gerados automaticamente ao criar os jobs.
+                      </p>
+                    </div>
+                  </div>
 
                   <Button
                     disabled={creating || totalCombinations === 0 || totalCombinations > 100}
                     type="submit"
                   >
-                    {creating ? "Criando jobs..." : "Criar combinações"}
+                    <Icon name="wand" />
+                    {creating ? "Criando jobs..." : "05. Gerar combinações"}
                   </Button>
                 </FieldGroup>
               </form>
-            </CardContent>
-          </Card>
+            </StepCard>
 
-          <GeneratedJobsPanel
-            accounts={accounts.data}
-            jobIds={createdJobIds}
-            onScheduled={() => setCreatedJobIds((current) => [...current])}
-          />
+            <GeneratedJobsPanel
+              accounts={snapshot.data.accounts}
+              jobIds={createdJobIds}
+              onScheduled={() => setCreatedJobIds((current) => [...current])}
+            />
+          </div>
         </div>
-      </section>
+      </div>
     </>
   );
 }
 
-function SourceVideoGrid({
-  error,
-  onToggle,
-  selectedIds,
-  videos,
+function StepCard({
+  children,
+  description,
+  number,
+  title,
 }: {
-  error: string | null;
-  onToggle: (id: string) => void;
-  selectedIds: string[];
-  videos: SourceVideo[];
+  children: React.ReactNode;
+  description: string;
+  number: string;
+  title: string;
 }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Vídeos de lance</CardTitle>
-        <CardDescription>Selecione os arquivos que entram nas combinações.</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        {error ? (
-          <div className="rounded-md border border-border p-4 text-sm text-muted-foreground">
-            Erro ao carregar vídeos: {error}
-          </div>
-        ) : null}
+    <section className="panel card-pad">
+      <div className="flex items-start gap-4">
+        <div
+          className="av-bubble lg"
+          style={{ background: "var(--accent-bg)", color: "var(--accent-hover)", borderRadius: 12 }}
+        >
+          {number}
+        </div>
+        <div className="col" style={{ gap: 4, flex: 1 }}>
+          <div className="text-lg">{title}</div>
+          <p className="page-subtitle" style={{ marginTop: 0 }}>{description}</p>
+        </div>
+      </div>
+      <div className="mt-5">{children}</div>
+    </section>
+  );
+}
 
-        {videos.length === 0 && !error ? (
-          <div className="rounded-md border border-border p-8 text-sm text-muted-foreground">
-            Nenhum vídeo na biblioteca. <Link className="underline underline-offset-4" to="/library">Adicionar mídias</Link>
+function MediaPicker({
+  emptyCtaHref,
+  emptyText,
+  items,
+  kind,
+  number,
+  onToggle,
+  selectedIds,
+  title,
+}: {
+  emptyCtaHref: string;
+  emptyText: string;
+  items: Array<SourceVideo | ReactionVideo>;
+  kind: "source" | "reaction";
+  number: string;
+  onToggle: (id: string) => void;
+  selectedIds: string[];
+  title: string;
+}) {
+  return (
+    <StepCard
+      description={
+        kind === "source"
+          ? "Selecione os clipes ou lances que entram nas combinações."
+          : "Selecione uma ou mais reactions para multiplicar a saída."
+      }
+      number={number}
+      title={title}
+    >
+      {items.length === 0 ? (
+        <div className="empty" style={{ padding: "40px 12px" }}>
+          <div>
+            <h3>Nada disponível</h3>
+            <p>{emptyText}</p>
+            <Link className={buttonVariants({ className: "mt-4", variant: "outline" })} to={emptyCtaHref}>
+              Abrir biblioteca
+            </Link>
           </div>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-            {videos.map((video) => {
-              const selected = selectedIds.includes(video.id);
-
-              return (
-                <article
-                  className={cn(
-                    "flex flex-col gap-3 rounded-md border border-border p-3",
-                    selected && "ring-2 ring-ring",
-                  )}
-                  key={video.id}
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {items.map((item) => {
+            const selected = selectedIds.includes(item.id);
+            return (
+              <article className="card card-pad" key={item.id}>
+                <div
+                  style={{
+                    borderRadius: 8,
+                    boxShadow: selected
+                      ? `0 0 0 3px ${kind === "source" ? "var(--base-bg)" : "var(--reaction-bg)"}`
+                      : "none",
+                  }}
                 >
                   <StorageVideoPreview
-                    bucket="source-videos"
-                    path={video.storage_path}
-                    title={video.name}
+                    aspect="reel"
+                    bucket={kind === "source" ? "source-videos" : "reaction-videos"}
+                    path={item.storage_path}
+                    showTitle={false}
+                    title={item.name}
                   />
-                  <Button
-                    onClick={() => onToggle(video.id)}
-                    type="button"
-                    variant={selected ? "default" : "outline"}
-                  >
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <div className="col" style={{ gap: 6, minWidth: 0 }}>
+                    <span className="truncate text-sm">{item.name}</span>
+                    <MediaTonePill kind={kind === "source" ? "base" : "reaction"} />
+                  </div>
+                  <Button onClick={() => onToggle(item.id)} size="sm" variant={selected ? "default" : "outline"}>
                     {selected ? "Selecionado" : "Selecionar"}
                   </Button>
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </StepCard>
   );
 }
 
-function ReactionSelection({
-  onToggle,
-  reactions,
-  selectedIds,
-}: {
-  onToggle: (id: string) => void;
-  reactions: ReactionVideo[];
-  selectedIds: string[];
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Reactions</CardTitle>
-        <CardDescription>Selecione uma ou mais reactions para combinar.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {reactions.length === 0 ? (
-          <div className="rounded-md border border-border p-8 text-sm text-muted-foreground">
-            Nenhuma reaction enviada.
-          </div>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2">
-            {reactions.map((reaction) => {
-              const selected = selectedIds.includes(reaction.id);
-
-              return (
-                <article
-                  className={cn(
-                    "flex flex-col gap-3 rounded-md border border-border p-3",
-                    selected && "ring-2 ring-ring",
-                  )}
-                  key={reaction.id}
-                >
-                  <StorageVideoPreview
-                    bucket="reaction-videos"
-                    path={reaction.storage_path}
-                    title={reaction.name}
-                  />
-                  <Button
-                    onClick={() => onToggle(reaction.id)}
-                    type="button"
-                    variant={selected ? "default" : "outline"}
-                  >
-                    {selected ? "Selecionada" : "Selecionar"}
-                  </Button>
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function SelectedSummary({
+function SelectionSummary({
   reactions,
   sourceVideos,
 }: {
@@ -327,35 +443,36 @@ function SelectedSummary({
   if (sourceVideos.length === 0 && reactions.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-border p-3">
-      {sourceVideos.length > 0 ? (
-        <div>
-          <p className="text-sm font-medium">Vídeos selecionados</p>
+    <div className="card card-pad">
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="col" style={{ gap: 8 }}>
+          <div className="flex items-center gap-2">
+            <MediaTonePill kind="base" />
+            <span className="text-sm">{sourceVideos.length} vídeo(s)</span>
+          </div>
           {sourceVideos.map((video) => (
-            <p className="truncate text-sm text-muted-foreground" key={video.id}>
+            <span className="truncate text-xs muted" key={video.id}>
               {video.name}
-            </p>
+            </span>
           ))}
         </div>
-      ) : null}
-      {reactions.length > 0 ? (
-        <div>
-          <p className="text-sm font-medium">Reactions selecionadas</p>
+        <div className="col" style={{ gap: 8 }}>
+          <div className="flex items-center gap-2">
+            <MediaTonePill kind="reaction" />
+            <span className="text-sm">{reactions.length} reaction(s)</span>
+          </div>
           {reactions.map((reaction) => (
-            <p className="truncate text-sm text-muted-foreground" key={reaction.id}>
+            <span className="truncate text-xs muted" key={reaction.id}>
               {reaction.name}
-            </p>
+            </span>
           ))}
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }
 
-function toggleId(
-  id: string,
-  setIds: Dispatch<SetStateAction<string[]>>,
-) {
+function toggleId(id: string, setIds: Dispatch<SetStateAction<string[]>>) {
   setIds((current) =>
     current.includes(id)
       ? current.filter((currentId) => currentId !== id)

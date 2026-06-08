@@ -5,10 +5,18 @@ import { supabase } from "@/lib/supabase";
 type StorageVideoPreviewProps = {
   bucket: "reaction-videos" | "generated-reels" | "source-videos";
   path: string | null;
+  aspect?: "video" | "reel";
+  showTitle?: boolean;
   title: string;
 };
 
-export function StorageVideoPreview({ bucket, path, title }: StorageVideoPreviewProps) {
+export function StorageVideoPreview({
+  aspect = "video",
+  bucket,
+  path,
+  showTitle = true,
+  title,
+}: StorageVideoPreviewProps) {
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -37,18 +45,18 @@ export function StorageVideoPreview({ bucket, path, title }: StorageVideoPreview
   }, [bucket, path]);
 
   if (!path) {
-    return <EmptyPreview title={title} text="Vídeo ainda não disponível." />;
+    return <EmptyPreview aspect={aspect} showTitle={showTitle} title={title} text="Vídeo ainda não disponível." />;
   }
 
   if (!url) {
-    return <EmptyPreview title={title} text="Carregando preview..." />;
+    return <EmptyPreview aspect={aspect} showTitle={showTitle} title={title} text="Carregando preview..." />;
   }
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-sm font-medium">{title}</p>
+      {showTitle ? <p className="text-sm font-medium">{title}</p> : null}
       <video
-        className="aspect-video w-full rounded-md border border-border bg-black object-contain"
+        className={`${aspect === "reel" ? "aspect-[9/16]" : "aspect-video"} w-full rounded-md border border-border bg-black object-contain`}
         controls
         preload="metadata"
         src={url}
@@ -154,11 +162,21 @@ export function ClipUrlPreview({ url }: ClipUrlPreviewProps) {
   );
 }
 
-function EmptyPreview({ text, title }: { text: string; title: string }) {
+function EmptyPreview({
+  aspect,
+  showTitle,
+  text,
+  title,
+}: {
+  aspect: "video" | "reel";
+  showTitle: boolean;
+  text: string;
+  title: string;
+}) {
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-sm font-medium">{title}</p>
-      <div className="flex aspect-video w-full items-center justify-center rounded-md border border-border bg-secondary text-sm text-muted-foreground">
+      {showTitle ? <p className="text-sm font-medium">{title}</p> : null}
+      <div className={`flex ${aspect === "reel" ? "aspect-[9/16]" : "aspect-video"} w-full items-center justify-center rounded-md border border-border bg-secondary p-4 text-center text-sm text-muted-foreground`}>
         {text}
       </div>
     </div>

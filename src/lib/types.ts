@@ -13,9 +13,26 @@ export type PostStatus =
   | "partial"
   | "cancelled";
 
+export type AvatarStatus = "active" | "paused" | "draft";
+
+export type Avatar = {
+  id: string;
+  user_id: string;
+  name: string;
+  slug: string;
+  status: AvatarStatus;
+  persona_summary: string | null;
+  about: string | null;
+  photo_path: string | null;
+  primary_platform: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ReactionVideo = {
   id: string;
   user_id: string;
+  avatar_id: string;
   name: string;
   storage_path: string;
   duration_s: number | null;
@@ -25,6 +42,7 @@ export type ReactionVideo = {
 export type SourceVideo = {
   id: string;
   user_id: string;
+  avatar_id: string;
   name: string;
   storage_path: string;
   duration_s: number | null;
@@ -44,6 +62,7 @@ export type SourceVideo = {
 export type MediaImport = {
   id: string;
   user_id: string;
+  avatar_id: string;
   type: "url" | "instagram_profile";
   input: string;
   requested_limit: number;
@@ -58,6 +77,7 @@ export type MediaImport = {
 export type SocialAccount = {
   id: string;
   user_id: string;
+  avatar_id: string;
   zernio_profile_id: string;
   zernio_account_id: string;
   platform: "instagram";
@@ -71,6 +91,7 @@ export type SocialAccount = {
 export type Automation = {
   id: string;
   user_id: string;
+  avatar_id: string;
   account_id: string;
   posts_per_day: number;
   post_times: string[];
@@ -86,6 +107,7 @@ export type Automation = {
 export type ReelJob = {
   id: string;
   user_id: string;
+  avatar_id: string;
   automation_id: string | null;
   account_id: string | null;
   source_video_id: string | null;
@@ -107,6 +129,7 @@ export type ReelJob = {
 export type PostHistory = {
   id: string;
   user_id: string;
+  avatar_id: string;
   job_id: string;
   account_id: string;
   zernio_post_id: string | null;

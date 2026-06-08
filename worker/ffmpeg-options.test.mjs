@@ -16,6 +16,21 @@ describe("createFfmpegArgs", () => {
     expect(args.join(" ")).toContain("[top][bot]vstack=inputs=2:shortest=1[stack]");
   });
 
+  test("renders reaction at 40 percent and clip at 60 percent", () => {
+    const args = createFfmpegArgs({
+      clipPath: "/tmp/clip.mp4",
+      outputPath: "/tmp/output.mp4",
+      overlayText: "Drible seco",
+      reactionPath: "/tmp/reaction.mp4",
+      withDrawText: true,
+    });
+    const filter = args[args.indexOf("-filter_complex") + 1];
+
+    expect(filter).toContain("[0:v]scale=720:512:force_original_aspect_ratio=increase,crop=720:512");
+    expect(filter).toContain("[1:v]scale=720:768:force_original_aspect_ratio=increase,crop=720:768");
+    expect(filter).toContain("y=498");
+  });
+
   test("maps audio from the clip instead of reaction", () => {
     const args = createFfmpegArgs({
       clipPath: "/tmp/clip.mp4",

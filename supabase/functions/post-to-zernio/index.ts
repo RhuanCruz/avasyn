@@ -96,6 +96,7 @@ Deno.serve(async (request) => {
 
     await service.from("post_history").insert({
       user_id: job.user_id,
+      avatar_id: job.avatar_id,
       job_id: job.id,
       account_id: account.id,
       zernio_post_id: zernioPostId,

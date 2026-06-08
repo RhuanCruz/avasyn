@@ -1,5 +1,9 @@
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
-import { createServiceClient, getAuthenticatedUser } from "../_shared/supabase.ts";
+import {
+  createServiceClient,
+  getAuthenticatedUser,
+  resolveOwnedAvatar,
+} from "../_shared/supabase.ts";
 
 Deno.serve(async (request) => {
   const options = handleOptions(request);
@@ -13,10 +17,12 @@ Deno.serve(async (request) => {
     const requestedLimit = normalizeLimit(body.limit);
 
     const service = createServiceClient();
+    const avatar = await resolveOwnedAvatar(service, user.id, body.avatarId);
     const { data: mediaImport, error } = await service
       .from("media_imports")
       .insert({
         user_id: user.id,
+        avatar_id: avatar.id,
         type,
         input,
         requested_limit: requestedLimit,
