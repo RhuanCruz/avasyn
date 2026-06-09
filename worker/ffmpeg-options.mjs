@@ -7,13 +7,10 @@ export function createFfmpegArgs({
   reactionPositionY = 0,
   withDrawText,
 }) {
-  const overlayX = positionToOverlayRatio(reactionPositionX);
-  const overlayY = positionToOverlayRatio(reactionPositionY);
+  const cropX = positionToRatio(reactionPositionX);
+  const cropY = positionToRatio(reactionPositionY);
   const stackFilter = [
-    "[0:v]split=2[reaction_bg_src][reaction_fg_src]",
-    "[reaction_bg_src]scale=720:448:force_original_aspect_ratio=increase,crop=720:448,boxblur=18:1,setsar=1[reaction_bg]",
-    "[reaction_fg_src]scale=720:448:force_original_aspect_ratio=decrease,format=rgba,setsar=1[reaction_fg]",
-    `[reaction_bg][reaction_fg]overlay=(W-w)*${overlayX}:(H-h)*${overlayY}:format=auto[top]`,
+    `[0:v]scale=720:448:force_original_aspect_ratio=increase,crop=720:448:(iw-720)*${cropX}:(ih-448)*${cropY},setsar=1[top]`,
     "[1:v]scale=720:832:force_original_aspect_ratio=increase,crop=720:832,setsar=1[bot]",
     "[top][bot]vstack=inputs=2:shortest=1[stack]",
   ].join(";");
@@ -58,7 +55,7 @@ export function escapeDrawText(value) {
     .replaceAll(":", "\\:");
 }
 
-function positionToOverlayRatio(value) {
+function positionToRatio(value) {
   const numeric = Number(value);
   const clamped = Math.max(-100, Math.min(100, Number.isFinite(numeric) ? numeric : 0));
   return ((clamped + 100) / 200).toFixed(3);

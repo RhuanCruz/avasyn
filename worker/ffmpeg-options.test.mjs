@@ -26,15 +26,12 @@ describe("createFfmpegArgs", () => {
     });
     const filter = args[args.indexOf("-filter_complex") + 1];
 
-    expect(filter).toContain("[0:v]split=2[reaction_bg_src][reaction_fg_src]");
-    expect(filter).toContain("[reaction_bg_src]scale=720:448:force_original_aspect_ratio=increase,crop=720:448,boxblur=18:1");
-    expect(filter).toContain("[reaction_fg_src]scale=720:448:force_original_aspect_ratio=decrease,format=rgba,setsar=1[reaction_fg]");
-    expect(filter).toContain("[reaction_bg][reaction_fg]overlay=(W-w)*0.500:(H-h)*0.500:format=auto[top]");
+    expect(filter).toContain("[0:v]scale=720:448:force_original_aspect_ratio=increase,crop=720:448:(iw-720)*0.500:(ih-448)*0.500,setsar=1[top]");
     expect(filter).toContain("[1:v]scale=720:832:force_original_aspect_ratio=increase,crop=720:832");
     expect(filter).toContain("y=434");
   });
 
-  test("uses reaction position to place the foreground inside the top split", () => {
+  test("uses reaction position to crop the top split", () => {
     const args = createFfmpegArgs({
       clipPath: "/tmp/clip.mp4",
       outputPath: "/tmp/output.mp4",
@@ -46,7 +43,7 @@ describe("createFfmpegArgs", () => {
     });
     const filter = args[args.indexOf("-filter_complex") + 1];
 
-    expect(filter).toContain("[reaction_bg][reaction_fg]overlay=(W-w)*0.675:(H-h)*0.400:format=auto[top]");
+    expect(filter).toContain("[0:v]scale=720:448:force_original_aspect_ratio=increase,crop=720:448:(iw-720)*0.675:(ih-448)*0.400,setsar=1[top]");
   });
 
   test("maps audio from the clip instead of reaction", () => {

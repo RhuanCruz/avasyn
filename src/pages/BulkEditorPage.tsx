@@ -463,22 +463,13 @@ function ReactionPositionModal({
 }) {
   const previewRef = useRef<HTMLDivElement | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [videoSize, setVideoSize] = useState({ width: 9, height: 16 });
   const [position, setPosition] = useState({
     x: reaction.position_x ?? 0,
     y: reaction.position_y ?? 0,
   });
   const [saving, setSaving] = useState(false);
-  const area = { width: 360, height: 224 };
-  const videoAspect = videoSize.width / videoSize.height;
-  const areaAspect = area.width / area.height;
-  const frame = videoAspect > areaAspect
-    ? { width: area.width, height: area.width / videoAspect }
-    : { width: area.height * videoAspect, height: area.height };
   const ratioX = positionToRatio(position.x);
   const ratioY = positionToRatio(position.y);
-  const left = (area.width - frame.width) * ratioX;
-  const top = (area.height - frame.height) * ratioY;
 
   useEffect(() => {
     let active = true;
@@ -502,14 +493,9 @@ function ReactionPositionModal({
     const bounds = previewRef.current?.getBoundingClientRect();
     if (!bounds) return;
 
-    const scaleX = area.width / bounds.width;
-    const scaleY = area.height / (bounds.height * 0.35);
-    const pointerX = (event.clientX - bounds.left) * scaleX;
-    const pointerY = (event.clientY - bounds.top) * scaleY;
-    const maxLeft = Math.max(0, area.width - frame.width);
-    const maxTop = Math.max(0, area.height - frame.height);
-    const nextX = maxLeft === 0 ? 0 : ((pointerX - frame.width / 2) / maxLeft) * 200 - 100;
-    const nextY = maxTop === 0 ? 0 : ((pointerY - frame.height / 2) / maxTop) * 200 - 100;
+    const topBoundsHeight = bounds.height * 0.35;
+    const nextX = ((event.clientX - bounds.left) / bounds.width) * 200 - 100;
+    const nextY = ((event.clientY - bounds.top) / topBoundsHeight) * 200 - 100;
 
     setPosition({
       x: clampPosition(nextX),
@@ -575,37 +561,15 @@ function ReactionPositionModal({
               style={{ height: "35%" }}
             >
               {videoUrl ? (
-                <>
-                  <video
-                    autoPlay
-                    className="absolute inset-0 h-full w-full scale-110 object-cover opacity-70 blur-md"
-                    loop
-                    muted
-                    playsInline
-                    src={videoUrl}
-                  />
-                  <video
-                    autoPlay
-                    loop
-                    muted
-                    onLoadedMetadata={(event) => {
-                      const video = event.currentTarget;
-                      setVideoSize({
-                        width: video.videoWidth || 9,
-                        height: video.videoHeight || 16,
-                      });
-                    }}
-                    playsInline
-                    src={videoUrl}
-                    style={{
-                      height: `${frame.height}px`,
-                      left: `${left}px`,
-                      position: "absolute",
-                      top: `${top}px`,
-                      width: `${frame.width}px`,
-                    }}
-                  />
-                </>
+                <video
+                  autoPlay
+                  className="absolute inset-0 h-full w-full object-cover"
+                  loop
+                  muted
+                  playsInline
+                  src={videoUrl}
+                  style={{ objectPosition: `${ratioX * 100}% ${ratioY * 100}%` }}
+                />
               ) : (
                 <div className="flex h-full items-center justify-center text-sm muted">
                   Carregando reaction...
