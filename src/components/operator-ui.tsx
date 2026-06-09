@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, NavLink, useNavigate } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 
 import { useAuth } from "@/auth/AuthContext";
 import { buttonVariants } from "@/components/ui/button";
@@ -442,8 +442,15 @@ export function formatNumber(value: number | null | undefined) {
   return new Intl.NumberFormat("pt-BR", { notation: "compact" }).format(value);
 }
 
-export function AppSidebar({ avatars }: { avatars: Avatar[] }) {
-  const navigate = useNavigate();
+export function AppSidebar({
+  avatars,
+  onSelectAvatar,
+  selectedAvatarId,
+}: {
+  avatars: Avatar[];
+  onSelectAvatar: (avatarId: string | null) => void;
+  selectedAvatarId: string | null;
+}) {
   const { signOut, user } = useAuth();
   const navItems = [
     { href: "/", label: "Dashboard", icon: "home" },
@@ -485,15 +492,25 @@ export function AppSidebar({ avatars }: { avatars: Avatar[] }) {
       <div className="sidebar-section">Avatares ativos</div>
       <div className="col" style={{ gap: 1 }}>
         {activeAvatars.map((avatar) => (
-          <button className="nav-item" key={avatar.id} onClick={() => navigate(`/avatars/${avatar.id}`)}>
+          <NavLink
+            className={({ isActive }) => cn("nav-item", (isActive || selectedAvatarId === avatar.id) && "active")}
+            key={avatar.id}
+            onClick={() => onSelectAvatar(avatar.id)}
+            to={`/avatars/${avatar.id}`}
+          >
             <AvatarBubble avatar={avatar} size="sm" />
             <span className="truncate" style={{ fontSize: 12.5 }}>{avatar.name}</span>
-          </button>
+          </NavLink>
         ))}
-        <button className="nav-item" onClick={() => navigate("/avatars")} style={{ color: "var(--text-muted)", fontSize: 12 }}>
+        <NavLink
+          className="nav-item"
+          onClick={() => onSelectAvatar(null)}
+          style={{ color: "var(--text-muted)", fontSize: 12 }}
+          to="/avatars?create=1"
+        >
           <Icon className="nav-item-icon" name="plus" size={13} />
           <span>Novo avatar</span>
-        </button>
+        </NavLink>
       </div>
 
       <div className="sidebar-spacer" />

@@ -491,6 +491,7 @@ video {
 }
 
 .avatar-visual-card {
+  position: relative;
   min-width: 0;
 }
 
@@ -603,11 +604,6 @@ video {
   white-space: nowrap;
 }
 
-.avatar-cover-menu {
-  margin-left: auto;
-  color: rgba(255, 255, 255, 0.9);
-}
-
 .avatar-cover-bottom {
   bottom: 14px;
   justify-content: space-between;
@@ -649,6 +645,75 @@ video {
 
 .avatar-card-footer > .col {
   margin-right: auto;
+}
+
+.avatar-card-actions {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 5;
+}
+
+.avatar-card-menu-button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: white;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: background 140ms, border-color 140ms;
+}
+
+.avatar-card-menu-button:hover,
+.avatar-card-menu-button[aria-expanded="true"] {
+  border-color: rgba(255, 255, 255, 0.58);
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.avatar-card-menu-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.avatar-card-menu {
+  position: absolute;
+  top: 34px;
+  right: 0;
+  width: 168px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elev);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.42);
+  padding: 4px;
+}
+
+.avatar-card-menu-item {
+  width: 100%;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.avatar-card-menu-item:hover {
+  background: var(--surface);
+}
+
+.avatar-card-menu-item.destructive {
+  color: #ff8d8d;
+}
+
+.avatar-card-menu-item.destructive:hover {
+  background: rgba(255, 93, 93, 0.12);
 }
 
 .avatar-create-card {

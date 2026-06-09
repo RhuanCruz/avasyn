@@ -4,11 +4,15 @@ import { AppSidebar } from "@/components/operator-ui";
 import { useAvatarState } from "@/hooks/useAvatarState";
 
 export function AppShell() {
-  const { avatars } = useAvatarState();
+  const { avatars, selectedAvatarId, setSelectedAvatarId } = useAvatarState();
 
   return (
     <div className="app">
-      <AppSidebar avatars={avatars} />
+      <AppSidebar
+        avatars={avatars}
+        onSelectAvatar={setSelectedAvatarId}
+        selectedAvatarId={selectedAvatarId}
+      />
       <main className="main">
         <Outlet />
       </main>

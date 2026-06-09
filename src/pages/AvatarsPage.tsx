@@ -1,5 +1,5 @@
 import { FormEvent, type CSSProperties, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
 import { useAuth } from "@/auth/AuthContext";
@@ -17,9 +17,10 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { useAvatarState } from "@/hooks/useAvatarState";
+import { notifyAvatarsChanged, useAvatarState } from "@/hooks/useAvatarState";
 import { createAvatarPhotoUrl, removeAvatarPhoto, uploadAvatarPhoto } from "@/lib/avatar-photo";
-import { slugifyAvatarName } from "@/lib/avatar-utils";
+import { deleteAvatar } from "@/lib/avatar-delete";
+import { resolveAvatarSelection, slugifyAvatarName } from "@/lib/avatar-utils";
 import { supabase } from "@/lib/supabase";
 import type { Avatar, AvatarStatus } from "@/lib/types";
 
@@ -29,6 +30,7 @@ type FilterMode = "all" | AvatarStatus;
 export function AvatarsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const {
     avatars,
     loading,
@@ -45,6 +47,7 @@ export function AvatarsPage() {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [status, setStatus] = useState<AvatarStatus>("active");
   const [submitting, setSubmitting] = useState(false);
+  const [deletingAvatarId, setDeletingAvatarId] = useState<string | null>(null);
   const photoPreviewUrl = useMemo(
     () => (photoFile ? URL.createObjectURL(photoFile) : null),
     [photoFile],
@@ -55,6 +58,10 @@ export function AvatarsPage() {
       if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl);
     };
   }, [photoPreviewUrl]);
+
+  useEffect(() => {
+    setShowCreate(searchParams.get("create") === "1");
+  }, [searchParams]);
 
   const visibleAvatars = useMemo(() => {
     if (filter === "all") return avatars;
@@ -89,8 +96,9 @@ export function AvatarsPage() {
       }
 
       await refresh();
+      notifyAvatarsChanged();
       setSelectedAvatarId(data.id);
-      setShowCreate(false);
+      closeCreateAvatar();
       setName("");
       setPersonaSummary("");
       setPhotoFile(null);
@@ -108,6 +116,53 @@ export function AvatarsPage() {
       toast.error(submitError instanceof Error ? submitError.message : "Falha ao criar avatar");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  function openCreateAvatar() {
+    setShowCreate(true);
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("create", "1");
+      return next;
+    });
+  }
+
+  function closeCreateAvatar() {
+    setShowCreate(false);
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete("create");
+      return next;
+    }, { replace: true });
+  }
+
+  async function handleDeleteAvatar(avatar: Avatar) {
+    const confirmed = window.confirm(
+      `Deletar o avatar "${avatar.name}"? Isso tambem remove biblioteca, jobs e automacoes associados a ele.`,
+    );
+    if (!confirmed) return;
+
+    setDeletingAvatarId(avatar.id);
+    try {
+      await deleteAvatar({
+        avatar,
+        client: supabase,
+        removePhoto: removeAvatarPhoto,
+      });
+
+      const remainingAvatars = avatars.filter((candidate) => candidate.id !== avatar.id);
+      await refresh();
+      notifyAvatarsChanged();
+      if (selectedAvatarId === avatar.id) {
+        setSelectedAvatarId(resolveAvatarSelection(remainingAvatars, null));
+      }
+
+      toast.success("Avatar deletado");
+    } catch (deleteError) {
+      toast.error(deleteError instanceof Error ? deleteError.message : "Falha ao deletar avatar");
+    } finally {
+      setDeletingAvatarId(null);
     }
   }
 
@@ -131,7 +186,7 @@ export function AvatarsPage() {
                 </button>
               ))}
             </div>
-            <Button onClick={() => setShowCreate(true)} size="sm">
+            <Button onClick={openCreateAvatar} size="sm">
               <Icon name="plus" />
               Novo avatar
             </Button>
@@ -155,7 +210,7 @@ export function AvatarsPage() {
             <Link className={buttonVariants({ variant: "outline" })} to="/bulk-editor">
               Ir para editor
             </Link>
-            <Button onClick={() => setShowCreate(true)}>
+            <Button onClick={openCreateAvatar}>
               <Icon name="plus" />
               Criar avatar
             </Button>
@@ -219,14 +274,16 @@ export function AvatarsPage() {
             {visibleAvatars.map((avatar) => (
               <AvatarCard
                 avatar={avatar}
+                deleting={deletingAvatarId === avatar.id}
                 key={avatar.id}
                 selected={selectedAvatarId === avatar.id}
+                onDelete={handleDeleteAvatar}
                 onSelect={setSelectedAvatarId}
               />
             ))}
             <button
               className="avatar-create-card"
-              onClick={() => setShowCreate(true)}
+              onClick={openCreateAvatar}
               type="button"
             >
               <div className="col" style={{ alignItems: "center", gap: 8 }}>
@@ -283,7 +340,7 @@ export function AvatarsPage() {
       {showCreate ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-          onClick={() => setShowCreate(false)}
+          onClick={closeCreateAvatar}
         >
           <div
             className="panel"
@@ -295,7 +352,7 @@ export function AvatarsPage() {
                 <h2 className="text-lg">Novo avatar</h2>
                 <p className="page-subtitle">Crie uma unidade editorial para organizar mídia e produção.</p>
               </div>
-              <Button onClick={() => setShowCreate(false)} size="sm" variant="outline">
+              <Button onClick={closeCreateAvatar} size="sm" variant="outline">
                 <Icon name="x" />
               </Button>
             </div>
@@ -353,7 +410,7 @@ export function AvatarsPage() {
                   </Select>
                 </Field>
                 <div className="flex items-center justify-end gap-2 pt-2">
-                  <Button onClick={() => setShowCreate(false)} type="button" variant="outline">
+                  <Button onClick={closeCreateAvatar} type="button" variant="outline">
                     Cancelar
                   </Button>
                   <Button disabled={submitting || !name.trim()} type="submit">
@@ -371,15 +428,20 @@ export function AvatarsPage() {
 
 function AvatarCard({
   avatar,
+  deleting,
+  onDelete,
   onSelect,
   selected,
 }: {
   avatar: Avatar;
+  deleting: boolean;
+  onDelete: (avatar: Avatar) => void;
   onSelect: (avatarId: string | null) => void;
   selected: boolean;
 }) {
   const [colorStart, colorEnd] = colorForAvatar(avatar.id);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -417,9 +479,6 @@ function AvatarCard({
           <div className="avatar-cover-top">
             <span className="avatar-mini-badge">{avatarInitials(avatar.name).slice(0, 2)}</span>
             <span className="avatar-handle">@{avatar.slug}</span>
-            <span className="avatar-cover-menu">
-              <Icon name="dots" size={14} />
-            </span>
           </div>
           <div className="avatar-cover-bottom">
             <div className="avatar-cover-copy">
@@ -430,6 +489,36 @@ function AvatarCard({
           </div>
         </div>
       </Link>
+
+      <div className="avatar-card-actions">
+        <button
+          aria-expanded={menuOpen}
+          aria-haspopup="menu"
+          aria-label={`Acoes do avatar ${avatar.name}`}
+          className="avatar-card-menu-button"
+          disabled={deleting}
+          onClick={() => setMenuOpen((current) => !current)}
+          type="button"
+        >
+          <Icon name="dots" size={14} />
+        </button>
+        {menuOpen ? (
+          <div className="avatar-card-menu" role="menu">
+            <button
+              className="avatar-card-menu-item destructive"
+              disabled={deleting}
+              onClick={() => {
+                setMenuOpen(false);
+                onDelete(avatar);
+              }}
+              role="menuitem"
+              type="button"
+            >
+              {deleting ? "Deletando..." : "Deletar avatar"}
+            </button>
+          </div>
+        ) : null}
+      </div>
 
       <div className="avatar-card-footer">
         <div className="col" style={{ gap: 4, minWidth: 0 }}>

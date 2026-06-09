@@ -6,6 +6,13 @@ import { supabase } from "@/lib/supabase";
 import type { Avatar } from "@/lib/types";
 
 const STORAGE_KEY = "avasyn:selected-avatar-id";
+const AVATARS_CHANGED_EVENT = "avasyn:avatars-changed";
+
+export function notifyAvatarsChanged() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(AVATARS_CHANGED_EVENT));
+  }
+}
 
 export function useAvatarState(preferredAvatarId?: string | null) {
   const loadAvatars = useCallback(async () => {
@@ -53,6 +60,17 @@ export function useAvatarState(preferredAvatarId?: string | null) {
       setSelectedAvatarId(selectedAvatarId);
     }
   }, [selectedAvatarId, setSelectedAvatarId, storedAvatarId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    function onAvatarsChanged() {
+      void avatars.refresh();
+    }
+
+    window.addEventListener(AVATARS_CHANGED_EVENT, onAvatarsChanged);
+    return () => window.removeEventListener(AVATARS_CHANGED_EVENT, onAvatarsChanged);
+  }, [avatars.refresh]);
 
   return {
     avatars: avatars.data,
