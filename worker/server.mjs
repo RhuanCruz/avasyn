@@ -45,6 +45,7 @@ const apifyTikTokActorId = process.env.APIFY_TIKTOK_ACTOR_ID ?? "clockworks/tikt
 const apifyYouTubeDownloaderActorId = process.env.APIFY_YOUTUBE_DOWNLOADER_ACTOR_ID
   ?? "epctex/youtube-video-downloader";
 const apifyYouTubeQuality = process.env.APIFY_YOUTUBE_QUALITY ?? "720";
+const workerRevision = process.env.AVASYN_WORKER_REVISION ?? "local";
 const instagramDownloadDelaySeconds = Number(
   process.env.INSTAGRAM_DOWNLOAD_DELAY_SECONDS ?? 2,
 );
@@ -63,7 +64,7 @@ const supabase = createClient(supabaseUrl, serviceRoleKey, {
 createServer(async (request, response) => {
   try {
     if (request.method === "GET" && request.url === "/health") {
-      return sendJson(response, 200, { ok: true });
+      return sendJson(response, 200, { ok: true, revision: workerRevision });
     }
 
     if (request.method === "POST" && request.url === "/search-tiktok") {
