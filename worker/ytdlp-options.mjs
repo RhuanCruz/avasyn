@@ -14,6 +14,8 @@ export function createYtDlpArgs({
     "300M",
     "--js-runtimes",
     `node:${nodePath}`,
+    "--remote-components",
+    "ejs:github",
     "--no-playlist",
   ];
 
@@ -44,6 +46,8 @@ export function createTikTokSearchArgs({
     String(limit),
     "--js-runtimes",
     `node:${nodePath}`,
+    "--remote-components",
+    "ejs:github",
   ];
 
   if (cookiesPath) {

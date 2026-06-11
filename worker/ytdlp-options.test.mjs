@@ -11,6 +11,8 @@ describe("createYtDlpArgs", () => {
 
     expect(args).toContain("--js-runtimes");
     expect(args).toContain("node:/usr/local/bin/node");
+    expect(args).toContain("--remote-components");
+    expect(args).toContain("ejs:github");
     expect(args).toContain("--no-playlist");
   });
 
@@ -50,6 +52,8 @@ describe("createTikTokSearchArgs", () => {
     expect(args).toContain("12");
     expect(args).toContain("--js-runtimes");
     expect(args).toContain("node:/usr/local/bin/node");
+    expect(args).toContain("--remote-components");
+    expect(args).toContain("ejs:github");
     expect(args.at(-1)).toBe("tiktoksearch:gol bicicleta meme");
   });
 
