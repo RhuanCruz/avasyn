@@ -145,10 +145,8 @@ async function processJob(jobId) {
 
     if (clipSource.type === "storage") {
       await downloadStorageFile("source-videos", clipSource.path, clipPath);
-    } else if (detectPlatform(clipSource.url) === "youtube" && saveNowApiKey) {
-      await downloadYouTubeWithSaveNow(clipSource.url, clipPath);
-    } else if (detectPlatform(clipSource.url) === "youtube" && apifyToken) {
-      await downloadYouTubeWithApifyOrFallback({
+    } else if (detectPlatform(clipSource.url) === "youtube") {
+      await downloadYouTubeWithPreferredFallback({
         clipPath,
         clipUrl: clipSource.url,
         cookiesPath,
@@ -335,19 +333,9 @@ async function downloadImportUrl(url, workdir) {
   if (platform === "tiktok" && apifyToken) {
     return downloadTikTokImportUrl(url, videoPath);
   }
-  if (platform === "youtube" && saveNowApiKey) {
-    return downloadYouTubeImportUrl(url, videoPath);
-  }
-  if (platform === "youtube" && apifyToken) {
-    try {
-      return await downloadYouTubeImportUrl(url, videoPath);
-    } catch (error) {
-      const apifyError = error instanceof Error ? error.message : "Unknown Apify error";
-      if (isApifyYouTubeConfigurationError(apifyError)) {
-        throw new Error(apifyError);
-      }
-      console.warn(`Apify YouTube import failed, falling back to yt-dlp: ${apifyError}`);
-    }
+  if (platform === "youtube") {
+    const cookiesPath = await writeYoutubeCookiesFile(workdir);
+    return downloadYouTubeImportUrl(url, videoPath, infoPath, cookiesPath);
   }
 
   const cookiesPath = platform === "instagram"
@@ -376,27 +364,59 @@ async function downloadImportUrl(url, workdir) {
   };
 }
 
-async function downloadYouTubeImportUrl(url, videoPath) {
+async function downloadYouTubeImportUrl(url, videoPath, infoPath, cookiesPath) {
   if (saveNowApiKey) {
-    const item = await downloadYouTubeWithSaveNow(url, videoPath);
-    const candidate = normalizeSaveNowYouTubeCandidate(item, url);
-    return {
-      videoPath,
-      metadata: candidate.metadata,
-      externalId: sanitizeExternalId(candidate.externalId ?? url),
-      platform: candidate.platform,
-      sourceUrl: candidate.sourceUrl,
-    };
+    try {
+      const item = await downloadYouTubeWithSaveNow(url, videoPath);
+      const candidate = normalizeSaveNowYouTubeCandidate(item, url);
+      return {
+        videoPath,
+        metadata: candidate.metadata,
+        externalId: sanitizeExternalId(candidate.externalId ?? url),
+        platform: candidate.platform,
+        sourceUrl: candidate.sourceUrl,
+      };
+    } catch (error) {
+      console.warn(`SaveNow YouTube import failed, falling back: ${formatErrorMessage(error)}`);
+    }
   }
 
-  const item = await downloadYouTubeWithApify(url, videoPath);
-  const candidate = normalizeApifyYouTubeCandidate(item, url);
+  if (apifyToken) {
+    try {
+      const item = await downloadYouTubeWithApify(url, videoPath);
+      const candidate = normalizeApifyYouTubeCandidate(item, url);
+      return {
+        videoPath,
+        metadata: candidate.metadata,
+        externalId: sanitizeExternalId(candidate.externalId ?? url),
+        platform: candidate.platform,
+        sourceUrl: candidate.sourceUrl,
+      };
+    } catch (error) {
+      console.warn(`Apify YouTube import failed, falling back to yt-dlp: ${formatErrorMessage(error)}`);
+    }
+  }
+
+  await runCommand("yt-dlp", [
+    "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
+    "--merge-output-format", "mp4",
+    "--max-filesize", "300M",
+    "--js-runtimes", `node:${ytdlpNodePath}`,
+    "--no-playlist",
+    "--write-info-json",
+    ...(cookiesPath ? ["--cookies", cookiesPath] : []),
+    ...(ytdlpProxy ? ["--proxy", ytdlpProxy] : []),
+    "-o", videoPath,
+    url,
+  ]);
+
+  const metadata = await readJsonFile(infoPath);
   return {
     videoPath,
-    metadata: candidate.metadata,
-    externalId: sanitizeExternalId(candidate.externalId ?? url),
-    platform: candidate.platform,
-    sourceUrl: candidate.sourceUrl,
+    metadata,
+    externalId: sanitizeExternalId(metadata?.id ?? url),
+    platform: "youtube",
+    sourceUrl: url,
   };
 }
 
@@ -410,28 +430,36 @@ async function downloadYouTubeWithSaveNow(url, videoPath) {
   return item;
 }
 
-async function downloadYouTubeWithApifyOrFallback({
+async function downloadYouTubeWithPreferredFallback({
   clipPath,
   clipUrl,
   cookiesPath,
 }) {
-  try {
-    await downloadYouTubeWithApify(clipUrl, clipPath);
-  } catch (error) {
-    const apifyError = error instanceof Error ? error.message : "Unknown Apify error";
-    if (isApifyYouTubeConfigurationError(apifyError)) {
-      throw new Error(apifyError);
+  if (saveNowApiKey) {
+    try {
+      await downloadYouTubeWithSaveNow(clipUrl, clipPath);
+      return;
+    } catch (error) {
+      console.warn(`SaveNow YouTube download failed, falling back: ${formatErrorMessage(error)}`);
     }
-
-    console.warn(`Apify YouTube download failed, falling back to yt-dlp: ${apifyError}`);
-    await runCommand("yt-dlp", createYtDlpArgs({
-      clipPath,
-      clipUrl,
-      cookiesPath,
-      nodePath: ytdlpNodePath,
-      proxyUrl: ytdlpProxy,
-    }));
   }
+
+  try {
+    if (apifyToken) {
+      await downloadYouTubeWithApify(clipUrl, clipPath);
+      return;
+    }
+  } catch (error) {
+    console.warn(`Apify YouTube download failed, falling back to yt-dlp: ${formatErrorMessage(error)}`);
+  }
+
+  await runCommand("yt-dlp", createYtDlpArgs({
+    clipPath,
+    clipUrl,
+    cookiesPath,
+    nodePath: ytdlpNodePath,
+    proxyUrl: ytdlpProxy,
+  }));
 }
 
 async function downloadYouTubeWithApify(url, videoPath) {
@@ -464,9 +492,8 @@ async function downloadYouTubeWithApify(url, videoPath) {
   return item;
 }
 
-function isApifyYouTubeConfigurationError(message) {
-  return /demo output|actor subscription|APIFY_YOUTUBE_DOWNLOADER_ACTOR_ID|downloadable YouTube video URL/i
-    .test(message);
+function formatErrorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function downloadTikTokImportUrl(url, videoPath) {
