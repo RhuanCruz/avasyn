@@ -24,6 +24,30 @@ describe("findApifyYouTubeDownloadUrl", () => {
     })).toBe("https://api.apify.com/v2/key-value-stores/x/records/video.mp4");
   });
 
+  test("returns alternate actor output URL fields", () => {
+    expect(findApifyYouTubeDownloadUrl({
+      status: "succeeded",
+      output: { downloadUrl: "https://api.apify.com/v2/key-value-stores/x/records/video" },
+    })).toBe("https://api.apify.com/v2/key-value-stores/x/records/video");
+  });
+
+  test("returns nested downloadable video URL fields", () => {
+    expect(findApifyYouTubeDownloadUrl({
+      status: "succeeded",
+      files: [
+        { type: "metadata", url: "https://www.youtube.com/watch?v=abc123" },
+        { type: "video", fileUrl: "https://example-cdn.test/video.mp4?token=abc" },
+      ],
+    })).toBe("https://example-cdn.test/video.mp4?token=abc");
+  });
+
+  test("does not return the original YouTube URL as a downloadable URL", () => {
+    expect(findApifyYouTubeDownloadUrl({
+      status: "succeeded",
+      url: "https://www.youtube.com/watch?v=abc123",
+    })).toBeNull();
+  });
+
   test("returns null when the actor item failed", () => {
     expect(findApifyYouTubeDownloadUrl({
       status: "failed",

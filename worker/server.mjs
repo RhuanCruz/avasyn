@@ -367,10 +367,10 @@ async function downloadYouTubeWithApify(url, videoPath) {
   const items = await runApifyYouTubeDownloader({
     actorId: apifyYouTubeDownloaderActorId,
     input: buildYouTubeDownloadInput(url, apifyYouTubeQuality),
-    limit: 1,
     token: apifyToken,
   });
-  const item = items.find((candidate) => !candidate?.error && candidate?.status !== "failed");
+  const item = items.find((candidate) => findApifyYouTubeDownloadUrl(candidate))
+    ?? items.find((candidate) => !candidate?.error && candidate?.status !== "failed");
   if (!item) {
     const errorItem = items.find((candidate) => candidate?.error || candidate?.status === "failed");
     throw new Error(errorItem?.error ?? "Apify did not return a YouTube video");
@@ -378,7 +378,9 @@ async function downloadYouTubeWithApify(url, videoPath) {
 
   const downloadUrl = findApifyYouTubeDownloadUrl(item);
   if (!downloadUrl) {
-    throw new Error("Apify did not return a downloadable YouTube video URL");
+    const status = item?.status ? ` status=${item.status}` : "";
+    const keys = item && typeof item === "object" ? Object.keys(item).join(",") : "none";
+    throw new Error(`Apify did not return a downloadable YouTube video URL.${status} keys=${keys}`);
   }
 
   await downloadHttpFile(downloadUrl, videoPath);
