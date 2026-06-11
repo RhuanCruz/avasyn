@@ -143,7 +143,12 @@ async function processJob(jobId) {
       try {
         await downloadYouTubeWithApify(clipSource.url, clipPath);
       } catch (error) {
-        console.warn(`Apify YouTube download failed, falling back to yt-dlp: ${error.message}`);
+        const apifyError = error instanceof Error ? error.message : "Unknown Apify error";
+        if (isApifyYouTubeConfigurationError(apifyError)) {
+          throw new Error(apifyError);
+        }
+
+        console.warn(`Apify YouTube download failed, falling back to yt-dlp: ${apifyError}`);
         await runCommand("yt-dlp", createYtDlpArgs({
           clipPath,
           clipUrl: clipSource.url,
@@ -338,7 +343,11 @@ async function downloadImportUrl(url, workdir) {
     try {
       return await downloadYouTubeImportUrl(url, videoPath);
     } catch (error) {
-      console.warn(`Apify YouTube import failed, falling back to yt-dlp: ${error.message}`);
+      const apifyError = error instanceof Error ? error.message : "Unknown Apify error";
+      if (isApifyYouTubeConfigurationError(apifyError)) {
+        throw new Error(apifyError);
+      }
+      console.warn(`Apify YouTube import failed, falling back to yt-dlp: ${apifyError}`);
     }
   }
 
@@ -408,6 +417,11 @@ async function downloadYouTubeWithApify(url, videoPath) {
 
   await downloadHttpFile(downloadUrl, videoPath);
   return item;
+}
+
+function isApifyYouTubeConfigurationError(message) {
+  return /demo output|actor subscription|APIFY_YOUTUBE_DOWNLOADER_ACTOR_ID|downloadable YouTube video URL/i
+    .test(message);
 }
 
 async function downloadTikTokImportUrl(url, videoPath) {

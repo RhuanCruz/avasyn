@@ -855,6 +855,10 @@ function sleep(milliseconds: number) {
 function formatMediaImportError(message: string | null) {
   if (!message) return "Falha ao importar mídia";
 
+  if (/Apify YouTube downloader returned demo output|actor subscription|APIFY_YOUTUBE_DOWNLOADER_ACTOR_ID|downloadable YouTube video URL/i.test(message)) {
+    return "A Apify não retornou um MP4 baixável. Verifique se o actor do YouTube está liberado/subscrito na sua conta Apify.";
+  }
+
   if (/Sign in to confirm you.?re not a bot|cookies-from-browser|--cookies/i.test(message)) {
     return "YouTube bloqueou o download. Atualize YOUTUBE_COOKIES_BASE64 no worker e rode novamente.";
   }
