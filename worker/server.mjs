@@ -17,6 +17,12 @@ import {
   runApifyTikTokActor,
 } from "./apify-tiktok.mjs";
 import {
+  buildYouTubeDownloadInput,
+  findApifyYouTubeDownloadUrl,
+  normalizeApifyYouTubeCandidate,
+  runApifyYouTubeDownloader,
+} from "./apify-youtube.mjs";
+import {
   createGalleryDlArgs,
   detectPlatform,
   sanitizeExternalId,
@@ -35,6 +41,9 @@ const youtubeCookies = process.env.YOUTUBE_COOKIES;
 const instagramCookiesBase64 = process.env.INSTAGRAM_COOKIES_BASE64;
 const apifyToken = process.env.APIFY_TOKEN;
 const apifyTikTokActorId = process.env.APIFY_TIKTOK_ACTOR_ID ?? "clockworks/tiktok-scraper";
+const apifyYouTubeDownloaderActorId = process.env.APIFY_YOUTUBE_DOWNLOADER_ACTOR_ID
+  ?? "epctex/youtube-video-downloader";
+const apifyYouTubeQuality = process.env.APIFY_YOUTUBE_QUALITY ?? "720";
 const instagramDownloadDelaySeconds = Number(
   process.env.INSTAGRAM_DOWNLOAD_DELAY_SECONDS ?? 2,
 );
@@ -128,6 +137,8 @@ async function processJob(jobId) {
 
     if (clipSource.type === "storage") {
       await downloadStorageFile("source-videos", clipSource.path, clipPath);
+    } else if (detectPlatform(clipSource.url) === "youtube" && apifyToken) {
+      await downloadYouTubeWithApify(clipSource.url, clipPath);
     } else {
       await runCommand("yt-dlp", createYtDlpArgs({
         clipPath,
@@ -310,6 +321,9 @@ async function downloadImportUrl(url, workdir) {
   if (platform === "tiktok" && apifyToken) {
     return downloadTikTokImportUrl(url, videoPath);
   }
+  if (platform === "youtube" && apifyToken) {
+    return downloadYouTubeImportUrl(url, videoPath);
+  }
 
   const cookiesPath = platform === "instagram"
     ? await writeInstagramCookiesFile(workdir)
@@ -335,6 +349,40 @@ async function downloadImportUrl(url, workdir) {
     platform,
     sourceUrl: url,
   };
+}
+
+async function downloadYouTubeImportUrl(url, videoPath) {
+  const item = await downloadYouTubeWithApify(url, videoPath);
+  const candidate = normalizeApifyYouTubeCandidate(item, url);
+  return {
+    videoPath,
+    metadata: candidate.metadata,
+    externalId: sanitizeExternalId(candidate.externalId ?? url),
+    platform: candidate.platform,
+    sourceUrl: candidate.sourceUrl,
+  };
+}
+
+async function downloadYouTubeWithApify(url, videoPath) {
+  const items = await runApifyYouTubeDownloader({
+    actorId: apifyYouTubeDownloaderActorId,
+    input: buildYouTubeDownloadInput(url, apifyYouTubeQuality),
+    limit: 1,
+    token: apifyToken,
+  });
+  const item = items.find((candidate) => !candidate?.error && candidate?.status !== "failed");
+  if (!item) {
+    const errorItem = items.find((candidate) => candidate?.error || candidate?.status === "failed");
+    throw new Error(errorItem?.error ?? "Apify did not return a YouTube video");
+  }
+
+  const downloadUrl = findApifyYouTubeDownloadUrl(item);
+  if (!downloadUrl) {
+    throw new Error("Apify did not return a downloadable YouTube video URL");
+  }
+
+  await downloadHttpFile(downloadUrl, videoPath);
+  return item;
 }
 
 async function downloadTikTokImportUrl(url, videoPath) {

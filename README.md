@@ -39,6 +39,8 @@ MVP interno para gerar e postar Instagram Reels usando Supabase e Zernio.
      YOUTUBE_API_KEY= \
      APIFY_TOKEN= \
      APIFY_TIKTOK_ACTOR_ID=clockworks/tiktok-scraper \
+     APIFY_YOUTUBE_DOWNLOADER_ACTOR_ID=epctex/youtube-video-downloader \
+     APIFY_YOUTUBE_QUALITY=720 \
      HEYGEN_API_KEY= \
      HEYGEN_WEBHOOK_URL= \
      ZERNIO_API_KEY= \
@@ -83,6 +85,8 @@ MVP interno para gerar e postar Instagram Reels usando Supabase e Zernio.
    VIDEO_WORKER_SECRET=
    APIFY_TOKEN=
    APIFY_TIKTOK_ACTOR_ID=clockworks/tiktok-scraper
+   APIFY_YOUTUBE_DOWNLOADER_ACTOR_ID=epctex/youtube-video-downloader
+   APIFY_YOUTUBE_QUALITY=720
    YOUTUBE_COOKIES_BASE64=
    INSTAGRAM_COOKIES_BASE64=
    INSTAGRAM_DOWNLOAD_DELAY_SECONDS=2
@@ -90,7 +94,9 @@ MVP interno para gerar e postar Instagram Reels usando Supabase e Zernio.
    PORT=8080
    ```
 
-   Para links do YouTube que retornam `Sign in to confirm you're not a bot`,
+   Com `APIFY_TOKEN` configurado, links do YouTube usam o actor
+   `epctex/youtube-video-downloader` antes do fallback `yt-dlp`.
+   Se optar pelo fallback e aparecer `Sign in to confirm you're not a bot`,
    exporte cookies do YouTube no formato Netscape cookies.txt, gere base64 e
    salve em `YOUTUBE_COOKIES_BASE64`:
 
