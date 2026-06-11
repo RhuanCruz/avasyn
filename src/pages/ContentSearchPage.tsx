@@ -11,7 +11,6 @@ import {
   formatNumber,
 } from "@/components/operator-ui";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { StorageVideoPreview } from "@/components/VideoPreview";
 import { useAvatarState } from "@/hooks/useAvatarState";
 import { invokeFunction } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
@@ -44,6 +43,19 @@ type QuickReactJobResponse = {
 
 const DEFAULT_QUERY = "football shorts";
 const DEFAULT_RECENT_DAYS = 7;
+const QUICK_OVERLAY_DEFAULT = "Olha isso";
+const QUICK_CAPTION_DEFAULT = "React novo no ar.";
+const REACTION_SPLIT_PERCENT = 35;
+
+type QuickReactConfig = {
+  caption: string;
+  overlayText: string;
+  reactionId: string;
+};
+
+type QuickReactModalState = {
+  result: ContentSearchResult | null;
+};
 
 export function ContentSearchPage() {
   const { avatars, selectedAvatar, selectedAvatarId, setSelectedAvatarId } = useAvatarState();
@@ -61,7 +73,9 @@ export function ContentSearchPage() {
   const [savedSourceVideos, setSavedSourceVideos] = useState<SourceVideo[]>([]);
   const [reactions, setReactions] = useState<ReactionVideo[]>([]);
   const [preview, setPreview] = useState<ContentSearchResult | null>(null);
-  const [quickResult, setQuickResult] = useState<ContentSearchResult | null>(null);
+  const [quickModal, setQuickModal] = useState<QuickReactModalState | null>(null);
+  const [quickConfig, setQuickConfig] = useState<QuickReactConfig | null>(null);
+  const [quickGeneratingIds, setQuickGeneratingIds] = useState<string[]>([]);
   const [loadedInitialFeed, setLoadedInitialFeed] = useState(false);
 
   useEffect(() => {
@@ -73,6 +87,20 @@ export function ContentSearchPage() {
     void loadSavedSources(selectedAvatarId);
     void loadReactions(selectedAvatarId);
   }, [selectedAvatarId]);
+
+  useEffect(() => {
+    if (!selectedAvatarId) {
+      setQuickConfig(null);
+      return;
+    }
+    setQuickConfig(readQuickConfig(selectedAvatarId));
+  }, [selectedAvatarId]);
+
+  useEffect(() => {
+    if (!selectedAvatarId || reactions.length === 0 || !quickConfig) return;
+    const stillExists = reactions.some((reaction) => reaction.id === quickConfig.reactionId);
+    if (!stillExists) setQuickConfig(null);
+  }, [quickConfig, reactions, selectedAvatarId]);
 
   useEffect(() => {
     if (!selectedAvatarId || loadedInitialFeed || searching) return;
@@ -142,9 +170,22 @@ export function ContentSearchPage() {
                 placeholder="Neymar edits, gol bicicleta, futebol engraçado..."
                 value={query}
               />
-              <Button disabled={searching} onClick={() => void searchContent()}>
-                {searching ? "Buscando..." : "Buscar"}
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  disabled={!selectedAvatarId}
+                  onClick={() => setQuickModal({ result: null })}
+                  title="Configurar reaction rápida"
+                  variant="outline"
+                >
+                  <Icon name="settings" />
+                  <span className="hidden sm:inline">
+                    {quickConfig ? "Reaction rápida" : "Configurar reaction"}
+                  </span>
+                </Button>
+                <Button disabled={searching} onClick={() => void searchContent()}>
+                  {searching ? "Buscando..." : "Buscar"}
+                </Button>
+              </div>
             </div>
 
             <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -188,9 +229,10 @@ export function ContentSearchPage() {
 
                     return (
                       <ContentResultCard
+                        generating={quickGeneratingIds.includes(result.id)}
                         key={result.id}
                         onPreview={setPreview}
-                        onQuickGenerate={setQuickResult}
+                        onQuickGenerate={(item) => void handleQuickGenerate(item)}
                         onSave={(item) => void saveSearchResult(item)}
                         result={result}
                         saved={saved}
@@ -227,18 +269,23 @@ export function ContentSearchPage() {
           />
         ) : null}
 
-        {quickResult && selectedAvatarId ? (
+        {quickModal && selectedAvatarId ? (
           <QuickReactModal
             avatarId={selectedAvatarId}
-            ensureSourceVideo={(result) => ensureSourceVideo(result)}
-            onClose={() => setQuickResult(null)}
-            onCreated={(jobId) => {
-              setQuickResult(null);
-              toast.success("Job de react enviado para renderização");
-              console.info("Quick react job created", jobId);
+            onClose={() => setQuickModal(null)}
+            onConfigured={(config) => {
+              persistQuickConfig(selectedAvatarId, config);
+              setQuickConfig(config);
+              setQuickModal(null);
+              if (quickModal.result) {
+                void createQuickJobFromResult(quickModal.result, config);
+              } else {
+                toast.success("Reaction rápida configurada");
+              }
             }}
             reactions={reactions}
-            result={quickResult}
+            result={quickModal.result}
+            savedConfig={quickConfig}
           />
         ) : null}
       </div>
@@ -361,6 +408,47 @@ export function ContentSearchPage() {
     }
   }
 
+  async function handleQuickGenerate(result: ContentSearchResult) {
+    if (!selectedAvatarId) {
+      toast.error("Selecione um avatar");
+      return;
+    }
+
+    const configuredReactionIsMissing =
+      quickConfig && reactions.length > 0 && !reactions.some((reaction) => reaction.id === quickConfig.reactionId);
+
+    if (!quickConfig || configuredReactionIsMissing) {
+      setQuickModal({ result });
+      return;
+    }
+
+    await createQuickJobFromResult(result, quickConfig);
+  }
+
+  async function createQuickJobFromResult(result: ContentSearchResult, config: QuickReactConfig) {
+    if (!selectedAvatarId) return;
+    if (quickGeneratingIds.includes(result.id)) return;
+
+    setQuickGeneratingIds((current) => [...current, result.id]);
+    try {
+      toast.info("Enviando react para renderização...");
+      const sourceVideo = await ensureSourceVideo(result);
+      const response = await invokeFunction<QuickReactJobResponse>("create-quick-react-job", {
+        avatarId: selectedAvatarId,
+        sourceVideoId: sourceVideo.id,
+        reactionId: config.reactionId,
+        overlayText: config.overlayText,
+        caption: config.caption,
+      });
+      toast.success("Job de react enviado para renderização");
+      console.info("Quick react job created", response.job.id);
+    } catch (error) {
+      toast.error(formatMediaImportError(error instanceof Error ? error.message : null));
+    } finally {
+      setQuickGeneratingIds((current) => current.filter((id) => id !== result.id));
+    }
+  }
+
   async function ensureSourceVideo(result: ContentSearchResult) {
     if (!selectedAvatarId) throw new Error("Selecione um avatar");
 
@@ -435,6 +523,7 @@ export function ContentSearchPage() {
 }
 
 function ContentResultCard({
+  generating,
   onQuickGenerate,
   onPreview,
   onSave,
@@ -442,6 +531,7 @@ function ContentResultCard({
   saved,
   saving,
 }: {
+  generating: boolean;
   onQuickGenerate: (result: ContentSearchResult) => void;
   onPreview: (result: ContentSearchResult) => void;
   onSave: (result: ContentSearchResult) => void;
@@ -501,8 +591,14 @@ function ContentResultCard({
         <Button className="flex-1" onClick={() => onPreview(result)} size="sm" variant="outline">
           Ver
         </Button>
-        <Button className="flex-1" onClick={() => onQuickGenerate(result)} size="sm" variant="outline">
-          Gerar
+        <Button
+          className="flex-1"
+          disabled={generating}
+          onClick={() => onQuickGenerate(result)}
+          size="sm"
+          variant="outline"
+        >
+          {generating ? "Enviando..." : "Gerar"}
         </Button>
         <Button
           className="flex-1"
@@ -519,29 +615,28 @@ function ContentResultCard({
 
 function QuickReactModal({
   avatarId,
-  ensureSourceVideo,
   onClose,
-  onCreated,
+  onConfigured,
   reactions,
   result,
+  savedConfig,
 }: {
   avatarId: string;
-  ensureSourceVideo: (result: ContentSearchResult) => Promise<SourceVideo>;
   onClose: () => void;
-  onCreated: (jobId: string) => void;
+  onConfigured: (config: QuickReactConfig) => void;
   reactions: ReactionVideo[];
-  result: ContentSearchResult;
+  result: ContentSearchResult | null;
+  savedConfig: QuickReactConfig | null;
 }) {
-  const defaultReactionKey = `avasyn:quick-reaction:${avatarId}`;
-  const savedReactionId = localStorage.getItem(defaultReactionKey);
-  const initialReaction = reactions.find((reaction) => reaction.id === savedReactionId) ?? reactions[0] ?? null;
+  const initialReaction =
+    reactions.find((reaction) => reaction.id === savedConfig?.reactionId) ?? reactions[0] ?? null;
   const [reactionId, setReactionId] = useState(initialReaction?.id ?? "");
   const selectedReaction = reactions.find((reaction) => reaction.id === reactionId) ?? null;
   const [positionX, setPositionX] = useState(selectedReaction?.position_x ?? 0);
   const [positionY, setPositionY] = useState(selectedReaction?.position_y ?? 0);
-  const [overlayText, setOverlayText] = useState("Olha isso");
-  const [caption, setCaption] = useState("React novo no ar.");
-  const [creating, setCreating] = useState(false);
+  const [overlayText, setOverlayText] = useState(savedConfig?.overlayText ?? QUICK_OVERLAY_DEFAULT);
+  const [caption, setCaption] = useState(savedConfig?.caption ?? QUICK_CAPTION_DEFAULT);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!selectedReaction) return;
@@ -561,8 +656,12 @@ function QuickReactModal({
       >
         <div className="page-header" style={{ marginBottom: 16 }}>
           <div>
-            <h2 className="text-lg">Gerar react rápido</h2>
-            <p className="page-subtitle">Escolha a reaction padrão e envie este vídeo para renderização.</p>
+            <h2 className="text-lg">Configurar reaction rápida</h2>
+            <p className="page-subtitle">
+              {result
+                ? "Salve a reaction padrão para gerar este vídeo e os próximos com um clique."
+                : "Escolha a reaction padrão usada pelo botão Gerar nos cards de busca."}
+            </p>
           </div>
           <Button onClick={onClose} size="sm" variant="outline">
             <Icon name="x" />
@@ -585,34 +684,26 @@ function QuickReactModal({
         ) : (
           <div className="grid gap-5 lg:grid-cols-[420px_1fr]">
             <div className="col" style={{ gap: 14 }}>
-              <div
-                className="overflow-hidden bg-black"
-                style={{
-                  aspectRatio: "9 / 16",
-                  border: "1px solid var(--border)",
-                  borderRadius: 10,
-                }}
-              >
-                {selectedReaction ? (
-                  <StorageVideoPreview
-                    aspect="reel"
-                    bucket="reaction-videos"
-                    path={selectedReaction.storage_path}
-                    showTitle={false}
-                    title={selectedReaction.name}
-                  />
-                ) : null}
-              </div>
+              <QuickReactionSplitPreview
+                caption={caption}
+                overlayText={overlayText}
+                positionX={positionX}
+                positionY={positionY}
+                reaction={selectedReaction}
+                result={result}
+              />
               <p className="text-xs muted">
-                O render final usa esta mesma reaction. A posição salva aqui vale para os próximos renders dela.
+                A prévia usa o mesmo recorte da renderização: reaction em cima e vídeo base embaixo.
               </p>
             </div>
 
             <div className="col" style={{ gap: 14 }}>
-              <div>
-                <div className="text-sm muted mb-1">Vídeo base</div>
-                <div className="text-sm">{result.title ?? result.result_url}</div>
-              </div>
+              {result ? (
+                <div>
+                  <div className="text-sm muted mb-1">Vídeo base</div>
+                  <div className="text-sm">{result.title ?? result.result_url}</div>
+                </div>
+              ) : null}
 
               <label className="col text-sm" style={{ gap: 8 }}>
                 Reaction
@@ -672,8 +763,8 @@ function QuickReactModal({
               </label>
 
               <div className="flex gap-2">
-                <Button disabled={creating || !reactionId} onClick={() => void createQuickJob()}>
-                  {creating ? "Criando..." : "Gerar agora"}
+                <Button disabled={saving || !reactionId} onClick={() => void saveQuickConfig()}>
+                  {saving ? "Salvando..." : result ? "Salvar e gerar" : "Salvar configuração"}
                 </Button>
                 <Button onClick={onClose} variant="outline">Cancelar</Button>
               </div>
@@ -684,31 +775,174 @@ function QuickReactModal({
     </div>
   );
 
-  async function createQuickJob() {
+  async function saveQuickConfig() {
     if (!reactionId) return;
-    setCreating(true);
+    setSaving(true);
     try {
-      localStorage.setItem(defaultReactionKey, reactionId);
       const { error: positionError } = await supabase
         .from("reaction_videos")
         .update({ position_x: positionX, position_y: positionY })
-        .eq("id", reactionId);
+        .eq("id", reactionId)
+        .eq("avatar_id", avatarId);
       if (positionError) throw positionError;
 
-      const response = await invokeFunction<QuickReactJobResponse>("create-quick-react-job", {
-        avatarId,
-        sourceVideoId: (await ensureSourceVideo(result)).id,
+      onConfigured({
+        caption: caption.trim() || QUICK_CAPTION_DEFAULT,
+        overlayText: normalizeQuickOverlayText(overlayText),
         reactionId,
-        overlayText,
-        caption,
       });
-      onCreated(response.job.id);
     } catch (error) {
       toast.error(formatMediaImportError(error instanceof Error ? error.message : null));
     } finally {
-      setCreating(false);
+      setSaving(false);
     }
   }
+}
+
+function QuickReactionSplitPreview({
+  caption,
+  overlayText,
+  positionX,
+  positionY,
+  reaction,
+  result,
+}: {
+  caption: string;
+  overlayText: string;
+  positionX: number;
+  positionY: number;
+  reaction: ReactionVideo | null;
+  result: ContentSearchResult | null;
+}) {
+  const [reactionUrl, setReactionUrl] = useState<string | null>(null);
+  const reactionObjectPosition = `${positionToObjectPercent(positionX)}% ${positionToObjectPercent(positionY)}%`;
+
+  useEffect(() => {
+    let cancelled = false;
+    setReactionUrl(null);
+    if (!reaction) return;
+
+    supabase.storage
+      .from("reaction-videos")
+      .createSignedUrl(reaction.storage_path, 60 * 30)
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          toast.error(error.message);
+          return;
+        }
+        setReactionUrl(data.signedUrl);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reaction?.storage_path]);
+
+  return (
+    <div
+      className="overflow-hidden bg-black"
+      style={{
+        aspectRatio: "9 / 16",
+        border: "1px solid var(--border)",
+        borderRadius: 10,
+        position: "relative",
+      }}
+    >
+      <div
+        style={{
+          height: `${REACTION_SPLIT_PERCENT}%`,
+          overflow: "hidden",
+          position: "relative",
+          width: "100%",
+        }}
+      >
+        {reactionUrl ? (
+          <video
+            autoPlay
+            loop
+            muted
+            playsInline
+            src={reactionUrl}
+            style={{
+              height: "100%",
+              objectFit: "cover",
+              objectPosition: reactionObjectPosition,
+              width: "100%",
+            }}
+          />
+        ) : (
+          <div className="empty h-full">
+            <div>
+              <h3>Reaction</h3>
+              <p>{reaction ? "Carregando..." : "Selecione uma reaction"}</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div
+        style={{
+          height: `${100 - REACTION_SPLIT_PERCENT}%`,
+          overflow: "hidden",
+          position: "relative",
+          width: "100%",
+        }}
+      >
+        {result?.thumbnail_url ? (
+          <img
+            alt={result.title ?? "Vídeo base"}
+            src={result.thumbnail_url}
+            style={{ height: "100%", objectFit: "cover", width: "100%" }}
+          />
+        ) : (
+          <div className="empty h-full">
+            <div>
+              <h3>Vídeo base</h3>
+              <p>{result ? "Thumbnail indisponível" : "Prévia do conteúdo selecionado"}</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div
+        style={{
+          background: "rgba(0,0,0,.68)",
+          borderRadius: 8,
+          color: "white",
+          fontSize: 12,
+          fontWeight: 600,
+          left: "50%",
+          maxWidth: "82%",
+          padding: "5px 9px",
+          position: "absolute",
+          textAlign: "center",
+          top: `calc(${REACTION_SPLIT_PERCENT}% - 14px)`,
+          transform: "translateX(-50%)",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {normalizeQuickOverlayText(overlayText)}
+      </div>
+
+      {caption.trim() ? (
+        <div
+          className="text-xs"
+          style={{
+            background: "linear-gradient(180deg, transparent, rgba(0,0,0,.68))",
+            bottom: 0,
+            color: "white",
+            left: 0,
+            padding: "28px 12px 10px",
+            position: "absolute",
+            right: 0,
+          }}
+        >
+          {caption}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function SearchResultPreviewModal({
@@ -831,6 +1065,60 @@ function mergeSourceVideos(current: SourceVideo[], next: SourceVideo[]) {
     byId.set(video.id, video);
   }
   return Array.from(byId.values());
+}
+
+function readQuickConfig(avatarId: string): QuickReactConfig | null {
+  try {
+    const raw = localStorage.getItem(quickConfigStorageKey(avatarId));
+    if (!raw) {
+      const legacyReactionId = localStorage.getItem(`avasyn:quick-reaction:${avatarId}`);
+      return legacyReactionId
+        ? {
+          caption: QUICK_CAPTION_DEFAULT,
+          overlayText: QUICK_OVERLAY_DEFAULT,
+          reactionId: legacyReactionId,
+        }
+        : null;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<QuickReactConfig>;
+    if (!parsed.reactionId) return null;
+    return {
+      caption: String(parsed.caption ?? QUICK_CAPTION_DEFAULT),
+      overlayText: normalizeQuickOverlayText(parsed.overlayText ?? QUICK_OVERLAY_DEFAULT),
+      reactionId: String(parsed.reactionId),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function persistQuickConfig(avatarId: string, config: QuickReactConfig) {
+  localStorage.setItem(quickConfigStorageKey(avatarId), JSON.stringify({
+    caption: config.caption.trim() || QUICK_CAPTION_DEFAULT,
+    overlayText: normalizeQuickOverlayText(config.overlayText),
+    reactionId: config.reactionId,
+  }));
+}
+
+function quickConfigStorageKey(avatarId: string) {
+  return `avasyn:quick-react-config:${avatarId}`;
+}
+
+function normalizeQuickOverlayText(value: string) {
+  const words = String(value || QUICK_OVERLAY_DEFAULT)
+    .replace(/[^\p{L}\p{N}\s]/gu, "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 3);
+  return words.length > 0 ? words.join(" ") : QUICK_OVERLAY_DEFAULT;
+}
+
+function positionToObjectPercent(value: number) {
+  const numeric = Number(value);
+  const clamped = Math.max(-100, Math.min(100, Number.isFinite(numeric) ? numeric : 0));
+  return (clamped + 100) / 2;
 }
 
 function extractYouTubeId(url: string) {
