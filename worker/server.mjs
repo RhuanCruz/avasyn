@@ -643,7 +643,7 @@ function sleep(milliseconds) {
 async function writeInstagramCookiesFile(workdir) {
   if (!instagramCookiesBase64) return undefined;
   const path = join(workdir, "instagram-cookies.txt");
-  await writeFile(path, Buffer.from(instagramCookiesBase64, "base64"), { mode: 0o600 });
+  await writeFile(path, Buffer.from(normalizeBase64Env(instagramCookiesBase64), "base64"), { mode: 0o600 });
   return path;
 }
 
@@ -792,7 +792,7 @@ function sendJson(response, status, body) {
 
 async function writeYoutubeCookiesFile(workdir) {
   const cookieContent = youtubeCookiesBase64
-    ? Buffer.from(youtubeCookiesBase64, "base64").toString("utf8")
+    ? Buffer.from(normalizeBase64Env(youtubeCookiesBase64), "base64").toString("utf8")
     : youtubeCookies;
 
   if (!cookieContent) {
@@ -802,4 +802,8 @@ async function writeYoutubeCookiesFile(workdir) {
   const cookiesPath = join(workdir, "youtube-cookies.txt");
   await writeFile(cookiesPath, cookieContent.trimEnd() + "\n", { mode: 0o600 });
   return cookiesPath;
+}
+
+function normalizeBase64Env(value) {
+  return value.replace(/\s+/g, "");
 }

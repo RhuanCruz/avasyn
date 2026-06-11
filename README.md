@@ -94,6 +94,9 @@ MVP interno para gerar e postar Instagram Reels usando Supabase e Zernio.
    PORT=8080
    ```
 
+   O worker deve instalar `yt-dlp[default]`, não apenas `yt-dlp`, para incluir
+   o suporte local de EJS usado pelo YouTube em alguns vídeos.
+
    Com `APIFY_TOKEN` configurado, links do YouTube usam o actor
    `epctex/youtube-video-downloader` antes do fallback `yt-dlp`.
    Se optar pelo fallback e aparecer `Sign in to confirm you're not a bot`,
