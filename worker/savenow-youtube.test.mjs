@@ -53,6 +53,13 @@ describe("runSaveNowYouTubeDownloader", () => {
             progress_url: "https://p.savenow.to/api/progress?id=job-1",
             text: "Preparing streaming download",
           }
+          : calls.length === 2
+          ? {
+            success: 0,
+            progress: 50,
+            download_url: "",
+            text: "Preparing streaming download",
+          }
           : {
             success: 1,
             progress: 1000,
@@ -71,7 +78,7 @@ describe("runSaveNowYouTubeDownloader", () => {
     });
 
     expect(result.download_url).toBe("https://logan14.savenow.to/api/v2/download/file");
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(3);
   });
 });
 

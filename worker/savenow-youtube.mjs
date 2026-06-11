@@ -42,7 +42,7 @@ export async function runSaveNowYouTubeDownloader({
   for (let attempt = 0; !downloadUrl && progressUrl && attempt < maxPolls; attempt += 1) {
     await sleep(pollDelayMs);
     current = await fetchJson(fetchImpl, progressUrl);
-    assertSaveNowSuccess(current);
+    assertSaveNowSuccess(current, { allowPending: true });
     downloadUrl = findSaveNowDownloadUrl(current);
   }
 
@@ -105,12 +105,16 @@ export function normalizeSaveNowYouTubeCandidate(raw, sourceUrl) {
   };
 }
 
-function assertSaveNowSuccess(raw) {
+function assertSaveNowSuccess(raw, { allowPending = false } = {}) {
   if (!raw || typeof raw !== "object") {
     throw new Error("SaveNow returned an empty response");
   }
 
   const success = raw.success;
+  if (allowPending && success === 0 && isSaveNowPending(raw)) {
+    return;
+  }
+
   if (success === false || success === 0) {
     throw new Error(raw.message ?? raw.error ?? "SaveNow failed to download YouTube video");
   }
@@ -121,6 +125,14 @@ function assertSaveNowSuccess(raw) {
       .join("; ");
     throw new Error(raw.message ? `${raw.message} ${message}` : message);
   }
+}
+
+function isSaveNowPending(raw) {
+  const progress = Number(raw.progress);
+  if (Number.isFinite(progress) && progress >= 0 && progress < 1000) return true;
+
+  const text = typeof raw.text === "string" ? raw.text.toLowerCase() : "";
+  return text.includes("preparing") || text.includes("processing") || text.includes("download");
 }
 
 async function fetchJson(fetchImpl, url) {
