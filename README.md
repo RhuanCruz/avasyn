@@ -9,6 +9,8 @@ MVP interno para gerar e postar Instagram Reels usando Supabase e Zernio.
 - Supabase Auth, Postgres, Storage, Realtime, Edge Functions
 - pgmq + pg_cron
 - Zernio API para Instagram
+- OpenAI Responses API para persona/roteiros
+- HeyGen API para avatares presenter, vozes e vídeos
 
 ## Setup
 
@@ -32,6 +34,13 @@ MVP interno para gerar e postar Instagram Reels usando Supabase e Zernio.
      SUPABASE_URL= \
      SUPABASE_ANON_KEY= \
      SUPABASE_SERVICE_ROLE_KEY= \
+     OPENAI_API_KEY= \
+     OPENAI_MODEL=gpt-4.1-mini \
+     YOUTUBE_API_KEY= \
+     APIFY_TOKEN= \
+     APIFY_TIKTOK_ACTOR_ID=clockworks/tiktok-scraper \
+     HEYGEN_API_KEY= \
+     HEYGEN_WEBHOOK_URL= \
      ZERNIO_API_KEY= \
      ZERNIO_PROFILE_ID= \
      ZERNIO_WEBHOOK_SECRET= \
@@ -46,6 +55,15 @@ MVP interno para gerar e postar Instagram Reels usando Supabase e Zernio.
    supabase functions deploy zernio-sync-accounts
    supabase functions deploy create-manual-jobs
    supabase functions deploy create-media-import
+   supabase functions deploy create-quick-react-job
+   supabase functions deploy search-content
+   supabase functions deploy structure-presenter-persona
+   supabase functions deploy create-heygen-presenter-avatar
+   supabase functions deploy design-heygen-voice
+   supabase functions deploy generate-presenter-script
+   supabase functions deploy submit-presenter-video
+   supabase functions deploy sync-presenter-video
+   supabase functions deploy heygen-webhook --no-verify-jwt
    supabase functions deploy reel-processor
    supabase functions deploy post-to-zernio
    supabase functions deploy automation-scheduler
@@ -63,9 +81,11 @@ MVP interno para gerar e postar Instagram Reels usando Supabase e Zernio.
    SUPABASE_URL=https://odbuwhhfwxttzbbjpsuh.supabase.co
    SUPABASE_SERVICE_ROLE_KEY=
    VIDEO_WORKER_SECRET=
-     YOUTUBE_COOKIES_BASE64=
-     INSTAGRAM_COOKIES_BASE64=
-     INSTAGRAM_DOWNLOAD_DELAY_SECONDS=2
+   APIFY_TOKEN=
+   APIFY_TIKTOK_ACTOR_ID=clockworks/tiktok-scraper
+   YOUTUBE_COOKIES_BASE64=
+   INSTAGRAM_COOKIES_BASE64=
+   INSTAGRAM_DOWNLOAD_DELAY_SECONDS=2
    YTDLP_NODE_PATH=/usr/local/bin/node
    PORT=8080
    ```

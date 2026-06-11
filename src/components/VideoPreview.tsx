@@ -66,9 +66,11 @@ export function StorageVideoPreview({
 }
 
 export function StorageImagePreview({
+  aspect = "square",
   path,
   title,
 }: {
+  aspect?: "square" | "reel" | "video";
   path: string | null;
   title: string;
 }) {
@@ -94,7 +96,7 @@ export function StorageImagePreview({
 
   if (!url) {
     return (
-      <div className="flex aspect-square items-center justify-center rounded-md border border-border bg-secondary p-3 text-center text-sm text-muted-foreground">
+      <div className={`flex ${aspectClass(aspect)} items-center justify-center rounded-md border border-border bg-secondary p-3 text-center text-sm text-muted-foreground`}>
         {title}
       </div>
     );
@@ -103,11 +105,17 @@ export function StorageImagePreview({
   return (
     <img
       alt={title}
-      className="aspect-square w-full rounded-md border border-border bg-black object-cover"
+      className={`${aspectClass(aspect)} w-full rounded-md border border-border bg-black object-cover`}
       loading="lazy"
       src={url}
     />
   );
+}
+
+function aspectClass(aspect: "square" | "reel" | "video") {
+  if (aspect === "reel") return "aspect-[9/16]";
+  if (aspect === "video") return "aspect-video";
+  return "aspect-square";
 }
 
 type ClipUrlPreviewProps = {

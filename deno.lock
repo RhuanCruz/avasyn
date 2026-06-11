@@ -1,0 +1,27 @@
+{
+  "version": "5",
+  "remote": {
+    "https://esm.sh/@supabase/supabase-js@2.77.0": "210ef629d03c26e29b7c185ca8d52533f53944beb4ba925ec5e73acf71c4ff8d"
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@supabase/supabase-js@^2.107.0",
+        "npm:@tailwindcss/vite@^4.3.0",
+        "npm:@types/react-dom@^19.2.3",
+        "npm:@types/react@^19.2.16",
+        "npm:@vitejs/plugin-react@5.1.1",
+        "npm:class-variance-authority@~0.7.1",
+        "npm:clsx@^2.1.1",
+        "npm:react-dom@^19.2.7",
+        "npm:react-router-dom@^7.16.0",
+        "npm:react@^19.2.7",
+        "npm:sonner@^2.0.7",
+        "npm:tailwind-merge@^3.6.0",
+        "npm:tailwindcss@^4.3.0",
+        "npm:typescript@5.9.3",
+        "npm:vite@7.2.4"
+      ]
+    }
+  }
+}

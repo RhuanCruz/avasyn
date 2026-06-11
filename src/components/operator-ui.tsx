@@ -453,7 +453,8 @@ export function AppSidebar({
 }) {
   const { signOut, user } = useAuth();
   const navItems = [
-    { href: "/", label: "Dashboard", icon: "home" },
+    { href: "/", label: "Buscar conteúdos", icon: "search" },
+    { href: "/dashboard", label: "Dashboard", icon: "home" },
     { href: "/avatars", label: "Avatares", icon: "users" },
     { href: "/library", label: "Biblioteca", icon: "library" },
     { href: "/bulk-editor", label: "Editor em massa", icon: "wand" },
@@ -510,6 +511,15 @@ export function AppSidebar({
         >
           <Icon className="nav-item-icon" name="plus" size={13} />
           <span>Novo avatar</span>
+        </NavLink>
+        <NavLink
+          className="nav-item"
+          onClick={() => onSelectAvatar(null)}
+          style={{ color: "var(--text-muted)", fontSize: 12 }}
+          to="/avatars/new/presenter"
+        >
+          <Icon className="nav-item-icon" name="film" size={13} />
+          <span>Novo presenter</span>
         </NavLink>
       </div>
 

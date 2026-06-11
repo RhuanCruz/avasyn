@@ -9,6 +9,14 @@ import { createClient } from "@supabase/supabase-js";
 import { createFfmpegArgs } from "./ffmpeg-options.mjs";
 import { getClipSource, getSourceVideoIdFromClipUrl } from "./job-media.mjs";
 import {
+  buildTikTokSearchInput,
+  buildTikTokDownloadInput,
+  findApifyTikTokVideoDownloadUrl,
+  normalizeApifyTikTokSearchResult,
+  normalizeApifyTikTokVideoCandidate,
+  runApifyTikTokActor,
+} from "./apify-tiktok.mjs";
+import {
   createGalleryDlArgs,
   detectPlatform,
   sanitizeExternalId,
@@ -25,6 +33,8 @@ const ytdlpProxy = process.env.YTDLP_PROXY;
 const youtubeCookiesBase64 = process.env.YOUTUBE_COOKIES_BASE64;
 const youtubeCookies = process.env.YOUTUBE_COOKIES;
 const instagramCookiesBase64 = process.env.INSTAGRAM_COOKIES_BASE64;
+const apifyToken = process.env.APIFY_TOKEN;
+const apifyTikTokActorId = process.env.APIFY_TIKTOK_ACTOR_ID ?? "clockworks/tiktok-scraper";
 const instagramDownloadDelaySeconds = Number(
   process.env.INSTAGRAM_DOWNLOAD_DELAY_SECONDS ?? 2,
 );
@@ -199,6 +209,20 @@ async function findJob(jobId) {
 }
 
 async function searchTikTok(query, limit) {
+  if (apifyToken) {
+    const items = await runApifyTikTokActor({
+      actorId: apifyTikTokActorId,
+      input: buildTikTokSearchInput(query, limit),
+      limit,
+      token: apifyToken,
+      timeoutSeconds: 120,
+    });
+    return items
+      .map(normalizeApifyTikTokSearchResult)
+      .filter(Boolean)
+      .slice(0, limit);
+  }
+
   const workdir = await mkdtemp(join(tmpdir(), "avasyn-search-"));
 
   try {
@@ -283,6 +307,10 @@ async function downloadImportUrl(url, workdir) {
   const videoPath = join(workdir, "import.mp4");
   const infoPath = join(workdir, "import.info.json");
   const platform = detectPlatform(url);
+  if (platform === "tiktok" && apifyToken) {
+    return downloadTikTokImportUrl(url, videoPath);
+  }
+
   const cookiesPath = platform === "instagram"
     ? await writeInstagramCookiesFile(workdir)
     : await writeYoutubeCookiesFile(workdir);
@@ -306,6 +334,35 @@ async function downloadImportUrl(url, workdir) {
     externalId: sanitizeExternalId(metadata?.id ?? url),
     platform,
     sourceUrl: url,
+  };
+}
+
+async function downloadTikTokImportUrl(url, videoPath) {
+  const items = await runApifyTikTokActor({
+    actorId: apifyTikTokActorId,
+    input: buildTikTokDownloadInput(url),
+    limit: 1,
+    token: apifyToken,
+  });
+  const item = items.find((candidate) => !candidate?.errorCode);
+  if (!item) {
+    const errorItem = items.find((candidate) => candidate?.errorCode);
+    throw new Error(errorItem?.error ?? "Apify did not return a TikTok video");
+  }
+
+  const downloadUrl = findApifyTikTokVideoDownloadUrl(item);
+  if (!downloadUrl) {
+    throw new Error("Apify did not return a downloadable TikTok video URL");
+  }
+
+  await downloadHttpFile(downloadUrl, videoPath);
+  const candidate = normalizeApifyTikTokVideoCandidate(item, url);
+  return {
+    videoPath,
+    metadata: candidate.metadata,
+    externalId: sanitizeExternalId(candidate.externalId ?? url),
+    platform: candidate.platform,
+    sourceUrl: candidate.sourceUrl,
   };
 }
 
@@ -404,6 +461,15 @@ async function uploadStorageFile(bucket, storagePath, localPath, contentType) {
     .from(bucket)
     .upload(storagePath, await readFile(localPath), { contentType, upsert: true });
   if (upload.error) throw upload.error;
+}
+
+async function downloadHttpFile(url, outputPath) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to download media: ${response.status} ${response.statusText}`);
+  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  await writeFile(outputPath, buffer);
 }
 
 async function updateMediaImport(importId, values) {

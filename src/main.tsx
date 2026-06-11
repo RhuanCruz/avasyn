@@ -9,9 +9,11 @@ import { AppShell } from "@/components/AppShell";
 import { AvatarDetailPage } from "@/pages/AvatarDetailPage";
 import { AvatarsPage } from "@/pages/AvatarsPage";
 import { BulkEditorPage } from "@/pages/BulkEditorPage";
+import { ContentSearchPage } from "@/pages/ContentSearchPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { LibraryPage } from "@/pages/LibraryPage";
+import { PresenterAvatarWizardPage } from "@/pages/PresenterAvatarWizardPage";
 import "@/index.css";
 
 const router = createBrowserRouter([
@@ -22,10 +24,12 @@ const router = createBrowserRouter([
       {
         element: <AppShell />,
         children: [
-          { path: "/", element: <DashboardPage /> },
+          { path: "/", element: <ContentSearchPage /> },
+          { path: "/dashboard", element: <DashboardPage /> },
           { path: "/library", element: <LibraryPage /> },
           { path: "/bulk-editor", element: <BulkEditorPage /> },
           { path: "/avatars", element: <AvatarsPage /> },
+          { path: "/avatars/new/presenter", element: <PresenterAvatarWizardPage /> },
           { path: "/avatars/:avatarId", element: <AvatarDetailPage /> },
         ],
       },

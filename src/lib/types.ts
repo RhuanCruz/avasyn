@@ -14,6 +14,7 @@ export type PostStatus =
   | "cancelled";
 
 export type AvatarStatus = "active" | "paused" | "draft";
+export type AvatarKind = "react" | "presenter";
 
 export type Avatar = {
   id: string;
@@ -21,6 +22,7 @@ export type Avatar = {
   name: string;
   slug: string;
   status: AvatarStatus;
+  avatar_kind: AvatarKind;
   persona_summary: string | null;
   about: string | null;
   photo_path: string | null;
@@ -39,6 +41,76 @@ export type ReactionVideo = {
   position_x: number;
   position_y: number;
   created_at: string;
+};
+
+export type PersonaReviewStatus = "draft" | "generated" | "approved";
+export type PresenterVideoStatus =
+  | "draft"
+  | "script_pending_review"
+  | "ready_for_video"
+  | "submitted"
+  | "processing"
+  | "completed"
+  | "error";
+
+export type PresenterPersona = {
+  id: string;
+  user_id: string;
+  avatar_id: string;
+  raw_persona: string;
+  structured_persona: Record<string, unknown>;
+  status: PersonaReviewStatus;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PresenterAvatarProfile = {
+  id: string;
+  user_id: string;
+  avatar_id: string;
+  main_topic: string;
+  visual_prompt: string | null;
+  visual_prompt_status: "draft" | "approved";
+  heygen_avatar_group_id: string | null;
+  heygen_avatar_id: string | null;
+  heygen_preview_image_url: string | null;
+  heygen_preview_video_url: string | null;
+  default_voice_id: string | null;
+  selected_voice_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PresenterVoiceOption = {
+  id: string;
+  user_id: string;
+  avatar_id: string;
+  voice_id: string;
+  name: string;
+  language: string | null;
+  gender: string | null;
+  preview_audio_url: string | null;
+  seed: number | null;
+  selected: boolean;
+  created_at: string;
+};
+
+export type PresenterVideoProject = {
+  id: string;
+  user_id: string;
+  avatar_id: string;
+  topic: string;
+  research_summary: Record<string, unknown>;
+  script: Record<string, unknown>;
+  script_text: string | null;
+  status: PresenterVideoStatus;
+  heygen_video_id: string | null;
+  video_url: string | null;
+  thumbnail_url: string | null;
+  duration_s: number | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type SourceVideo = {
@@ -156,3 +228,34 @@ export type TikTokSearchResult = {
   searched_at: string;
   expires_at: string;
 };
+
+export type ContentSearchPlatform = "youtube" | "tiktok" | "instagram";
+
+export type ContentSearchResult = {
+  id: string;
+  user_id: string;
+  avatar_id: string;
+  query: string;
+  platform: ContentSearchPlatform;
+  result_url: string;
+  external_id: string | null;
+  title: string | null;
+  thumbnail_url: string | null;
+  duration_s: number | null;
+  view_count: number | null;
+  like_count: number | null;
+  author_username: string | null;
+  published_at: string | null;
+  raw: Record<string, unknown>;
+  searched_at: string;
+  expires_at: string;
+};
+
+export type ContentSearchProviderStatus = {
+  platform: ContentSearchPlatform;
+  status: "ok" | "cached" | "unavailable" | "error";
+  count: number;
+  error?: string;
+};
+
+export type ContentSearchPageTokens = Partial<Record<ContentSearchPlatform, string>>;

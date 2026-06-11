@@ -84,6 +84,7 @@ export function AvatarsPage() {
           name: name.trim(),
           slug,
           status,
+          avatar_kind: "react",
           primary_platform: "manual",
           persona_summary: personaSummary.trim() || null,
           photo_path: uploadedPhotoPath,
@@ -188,8 +189,12 @@ export function AvatarsPage() {
             </div>
             <Button onClick={openCreateAvatar} size="sm">
               <Icon name="plus" />
-              Novo avatar
+              Novo react()
             </Button>
+            <Link className={buttonVariants({ size: "sm", variant: "outline" })} to="/avatars/new/presenter">
+              <Icon name="film" />
+              Novo presenter
+            </Link>
           </>
         }
         crumbs={[
@@ -210,9 +215,13 @@ export function AvatarsPage() {
             <Link className={buttonVariants({ variant: "outline" })} to="/bulk-editor">
               Ir para editor
             </Link>
+            <Link className={buttonVariants({ variant: "outline" })} to="/avatars/new/presenter">
+              <Icon name="film" />
+              Criar presenter
+            </Link>
             <Button onClick={openCreateAvatar}>
               <Icon name="plus" />
-              Criar avatar
+              Criar react()
             </Button>
           </div>
         </div>
@@ -290,8 +299,8 @@ export function AvatarsPage() {
                 <div className="av-bubble lg" style={{ background: "var(--surface-3)", color: "var(--text-muted)" }}>
                   +
                 </div>
-                <span className="text-md">Criar avatar</span>
-                <span className="text-sm muted">Novo contexto editorial</span>
+                <span className="text-md">Criar react()</span>
+                <span className="text-sm muted">Novo contexto editorial react()</span>
               </div>
             </button>
           </div>
@@ -315,7 +324,7 @@ export function AvatarsPage() {
                         <AvatarBubble avatar={avatar} />
                         <div className="col" style={{ gap: 3 }}>
                           <span>{avatar.name}</span>
-                          <span className="text-xs mono muted">{avatar.slug}</span>
+                          <span className="text-xs mono muted">{avatar.slug} · {avatar.avatar_kind}</span>
                         </div>
                       </div>
                     </td>
@@ -522,7 +531,7 @@ function AvatarCard({
 
       <div className="avatar-card-footer">
         <div className="col" style={{ gap: 4, minWidth: 0 }}>
-          <span className="mono text-xs muted truncate">react()</span>
+          <span className="mono text-xs muted truncate">{avatar.avatar_kind === "presenter" ? "presenter" : "react()"}</span>
           {selected ? <Pill tone="violet">ativo no filtro</Pill> : null}
         </div>
         <Button onClick={() => onSelect(avatar.id)} size="sm" variant={selected ? "default" : "outline"}>

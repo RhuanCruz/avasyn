@@ -1,4 +1,4 @@
-import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -12,7 +12,7 @@ import {
   formatDate,
   formatNumber,
 } from "@/components/operator-ui";
-import { StorageVideoPreview } from "@/components/VideoPreview";
+import { StorageImagePreview, StorageVideoPreview } from "@/components/VideoPreview";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useAvatarState } from "@/hooks/useAvatarState";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
@@ -26,6 +26,7 @@ type LibrarySnapshot = {
   reactionVideos: ReactionVideo[];
   sourceVideos: SourceVideo[];
 };
+
 
 type PreviewItem =
   | { kind: "source"; video: SourceVideo }
@@ -409,7 +410,7 @@ export function LibraryPage() {
             </div>
           </div>
         ) : null}
-      </div>
+     </div>
     </>
   );
 
@@ -420,6 +421,7 @@ export function LibraryPage() {
         : [...current, key],
     );
   }
+
 }
 
 function MediaSection({
@@ -478,13 +480,21 @@ function MediaSection({
                       : "none",
                   }}
                 >
-                  <StorageVideoPreview
-                    aspect="reel"
-                    bucket={isSource ? "source-videos" : "reaction-videos"}
-                    path={video.storage_path}
-                    showTitle={false}
-                    title={video.name}
-                  />
+                  {isSource && sourceVideo.thumbnail_path ? (
+                    <StorageImagePreview
+                      aspect="reel"
+                      path={sourceVideo.thumbnail_path}
+                      title={video.name}
+                    />
+                  ) : (
+                    <StorageVideoPreview
+                      aspect="reel"
+                      bucket={isSource ? "source-videos" : "reaction-videos"}
+                      path={video.storage_path}
+                      showTitle={false}
+                      title={video.name}
+                    />
+                  )}
                 </div>
                 <div className="mt-3 flex items-start justify-between gap-3">
                   <div className="col" style={{ gap: 6, minWidth: 0 }}>

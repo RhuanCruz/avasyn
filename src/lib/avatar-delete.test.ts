@@ -10,6 +10,7 @@ function makeAvatar(overrides: Partial<Avatar> = {}): Avatar {
     name: "Avatar Um",
     slug: "avatar-um",
     status: "active",
+    avatar_kind: "react",
     persona_summary: null,
     about: null,
     photo_path: null,

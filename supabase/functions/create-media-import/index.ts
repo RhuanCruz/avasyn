@@ -5,6 +5,8 @@ import {
   resolveOwnedAvatar,
 } from "../_shared/supabase.ts";
 
+declare const EdgeRuntime: { waitUntil: (promise: Promise<unknown>) => void };
+
 Deno.serve(async (request) => {
   const options = handleOptions(request);
   if (options) return options;
