@@ -24,6 +24,10 @@ import {
   runApifyYouTubeDownloader,
 } from "./apify-youtube.mjs";
 import {
+  normalizeSaveNowYouTubeCandidate,
+  runSaveNowYouTubeDownloader,
+} from "./savenow-youtube.mjs";
+import {
   createGalleryDlArgs,
   detectPlatform,
   sanitizeExternalId,
@@ -45,6 +49,8 @@ const apifyTikTokActorId = process.env.APIFY_TIKTOK_ACTOR_ID ?? "clockworks/tikt
 const apifyYouTubeDownloaderActorId = process.env.APIFY_YOUTUBE_DOWNLOADER_ACTOR_ID
   ?? "epctex/youtube-video-downloader";
 const apifyYouTubeQuality = process.env.APIFY_YOUTUBE_QUALITY ?? "720";
+const saveNowApiKey = process.env.SAVENOW_API_KEY;
+const saveNowFormat = process.env.SAVENOW_FORMAT ?? "720";
 const workerRevision = process.env.AVASYN_WORKER_REVISION ?? "local";
 const instagramDownloadDelaySeconds = Number(
   process.env.INSTAGRAM_DOWNLOAD_DELAY_SECONDS ?? 2,
@@ -139,24 +145,14 @@ async function processJob(jobId) {
 
     if (clipSource.type === "storage") {
       await downloadStorageFile("source-videos", clipSource.path, clipPath);
+    } else if (detectPlatform(clipSource.url) === "youtube" && saveNowApiKey) {
+      await downloadYouTubeWithSaveNow(clipSource.url, clipPath);
     } else if (detectPlatform(clipSource.url) === "youtube" && apifyToken) {
-      try {
-        await downloadYouTubeWithApify(clipSource.url, clipPath);
-      } catch (error) {
-        const apifyError = error instanceof Error ? error.message : "Unknown Apify error";
-        if (isApifyYouTubeConfigurationError(apifyError)) {
-          throw new Error(apifyError);
-        }
-
-        console.warn(`Apify YouTube download failed, falling back to yt-dlp: ${apifyError}`);
-        await runCommand("yt-dlp", createYtDlpArgs({
-          clipPath,
-          clipUrl: clipSource.url,
-          cookiesPath,
-          nodePath: ytdlpNodePath,
-          proxyUrl: ytdlpProxy,
-        }));
-      }
+      await downloadYouTubeWithApifyOrFallback({
+        clipPath,
+        clipUrl: clipSource.url,
+        cookiesPath,
+      });
     } else {
       await runCommand("yt-dlp", createYtDlpArgs({
         clipPath,
@@ -339,6 +335,9 @@ async function downloadImportUrl(url, workdir) {
   if (platform === "tiktok" && apifyToken) {
     return downloadTikTokImportUrl(url, videoPath);
   }
+  if (platform === "youtube" && saveNowApiKey) {
+    return downloadYouTubeImportUrl(url, videoPath);
+  }
   if (platform === "youtube" && apifyToken) {
     try {
       return await downloadYouTubeImportUrl(url, videoPath);
@@ -378,6 +377,18 @@ async function downloadImportUrl(url, workdir) {
 }
 
 async function downloadYouTubeImportUrl(url, videoPath) {
+  if (saveNowApiKey) {
+    const item = await downloadYouTubeWithSaveNow(url, videoPath);
+    const candidate = normalizeSaveNowYouTubeCandidate(item, url);
+    return {
+      videoPath,
+      metadata: candidate.metadata,
+      externalId: sanitizeExternalId(candidate.externalId ?? url),
+      platform: candidate.platform,
+      sourceUrl: candidate.sourceUrl,
+    };
+  }
+
   const item = await downloadYouTubeWithApify(url, videoPath);
   const candidate = normalizeApifyYouTubeCandidate(item, url);
   return {
@@ -387,6 +398,40 @@ async function downloadYouTubeImportUrl(url, videoPath) {
     platform: candidate.platform,
     sourceUrl: candidate.sourceUrl,
   };
+}
+
+async function downloadYouTubeWithSaveNow(url, videoPath) {
+  const item = await runSaveNowYouTubeDownloader({
+    apiKey: saveNowApiKey,
+    format: saveNowFormat,
+    sourceUrl: url,
+  });
+  await downloadHttpFile(item.download_url, videoPath);
+  return item;
+}
+
+async function downloadYouTubeWithApifyOrFallback({
+  clipPath,
+  clipUrl,
+  cookiesPath,
+}) {
+  try {
+    await downloadYouTubeWithApify(clipUrl, clipPath);
+  } catch (error) {
+    const apifyError = error instanceof Error ? error.message : "Unknown Apify error";
+    if (isApifyYouTubeConfigurationError(apifyError)) {
+      throw new Error(apifyError);
+    }
+
+    console.warn(`Apify YouTube download failed, falling back to yt-dlp: ${apifyError}`);
+    await runCommand("yt-dlp", createYtDlpArgs({
+      clipPath,
+      clipUrl,
+      cookiesPath,
+      nodePath: ytdlpNodePath,
+      proxyUrl: ytdlpProxy,
+    }));
+  }
 }
 
 async function downloadYouTubeWithApify(url, videoPath) {

@@ -859,6 +859,10 @@ function formatMediaImportError(message: string | null) {
     return "A Apify não retornou um MP4 baixável. Verifique se o actor do YouTube está liberado/subscrito na sua conta Apify.";
   }
 
+  if (/SAVENOW_API_KEY|SaveNow/i.test(message)) {
+    return "A API SaveNow não retornou um vídeo baixável. Verifique a chave/formato do worker e tente novamente.";
+  }
+
   if (/Sign in to confirm you.?re not a bot|cookies-from-browser|--cookies/i.test(message)) {
     return "YouTube bloqueou o download. Atualize YOUTUBE_COOKIES_BASE64 no worker e rode novamente.";
   }
