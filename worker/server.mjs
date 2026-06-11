@@ -19,6 +19,7 @@ import {
 import {
   buildYouTubeDownloadInput,
   findApifyYouTubeDownloadUrl,
+  isApifyYouTubeDemoResult,
   normalizeApifyYouTubeCandidate,
   runApifyYouTubeDownloader,
 } from "./apify-youtube.mjs";
@@ -138,7 +139,18 @@ async function processJob(jobId) {
     if (clipSource.type === "storage") {
       await downloadStorageFile("source-videos", clipSource.path, clipPath);
     } else if (detectPlatform(clipSource.url) === "youtube" && apifyToken) {
-      await downloadYouTubeWithApify(clipSource.url, clipPath);
+      try {
+        await downloadYouTubeWithApify(clipSource.url, clipPath);
+      } catch (error) {
+        console.warn(`Apify YouTube download failed, falling back to yt-dlp: ${error.message}`);
+        await runCommand("yt-dlp", createYtDlpArgs({
+          clipPath,
+          clipUrl: clipSource.url,
+          cookiesPath,
+          nodePath: ytdlpNodePath,
+          proxyUrl: ytdlpProxy,
+        }));
+      }
     } else {
       await runCommand("yt-dlp", createYtDlpArgs({
         clipPath,
@@ -322,7 +334,11 @@ async function downloadImportUrl(url, workdir) {
     return downloadTikTokImportUrl(url, videoPath);
   }
   if (platform === "youtube" && apifyToken) {
-    return downloadYouTubeImportUrl(url, videoPath);
+    try {
+      return await downloadYouTubeImportUrl(url, videoPath);
+    } catch (error) {
+      console.warn(`Apify YouTube import failed, falling back to yt-dlp: ${error.message}`);
+    }
   }
 
   const cookiesPath = platform === "instagram"
@@ -378,6 +394,12 @@ async function downloadYouTubeWithApify(url, videoPath) {
 
   const downloadUrl = findApifyYouTubeDownloadUrl(item);
   if (!downloadUrl) {
+    if (isApifyYouTubeDemoResult(item)) {
+      throw new Error(
+        "Apify YouTube downloader returned demo output instead of a video. "
+        + "Check the actor subscription/permissions for APIFY_YOUTUBE_DOWNLOADER_ACTOR_ID.",
+      );
+    }
     const status = item?.status ? ` status=${item.status}` : "";
     const keys = item && typeof item === "object" ? Object.keys(item).join(",") : "none";
     throw new Error(`Apify did not return a downloadable YouTube video URL.${status} keys=${keys}`);

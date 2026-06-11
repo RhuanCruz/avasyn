@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildYouTubeDownloadInput,
   findApifyYouTubeDownloadUrl,
+  isApifyYouTubeDemoResult,
   normalizeApifyYouTubeCandidate,
 } from "./apify-youtube.mjs";
 
@@ -10,6 +11,7 @@ describe("buildYouTubeDownloadInput", () => {
   test("builds an Apify YouTube downloader input for Shorts URLs", () => {
     expect(buildYouTubeDownloadInput("https://www.youtube.com/shorts/abc123", "720")).toEqual({
       startUrls: ["https://www.youtube.com/shorts/abc123"],
+      videoIds: ["abc123"],
       quality: "720",
       storageType: "apify",
     });
@@ -54,6 +56,24 @@ describe("findApifyYouTubeDownloadUrl", () => {
       output: { url: "https://example.com/video.mp4" },
       error: "Download failed",
     })).toBeNull();
+  });
+
+  test("returns null for demo actor output", () => {
+    expect(findApifyYouTubeDownloadUrl({ demo: true })).toBeNull();
+  });
+});
+
+describe("isApifyYouTubeDemoResult", () => {
+  test("detects demo-only output", () => {
+    expect(isApifyYouTubeDemoResult({ demo: true })).toBe(true);
+    expect(isApifyYouTubeDemoResult({ demo: "sample output" })).toBe(true);
+  });
+
+  test("does not treat normal actor output as demo", () => {
+    expect(isApifyYouTubeDemoResult({
+      status: "succeeded",
+      output: { url: "https://api.apify.com/v2/key-value-stores/x/records/video.mp4" },
+    })).toBe(false);
   });
 });
 

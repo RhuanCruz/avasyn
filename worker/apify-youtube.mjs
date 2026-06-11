@@ -1,6 +1,8 @@
 export function buildYouTubeDownloadInput(url, quality = "720") {
+  const videoId = extractYouTubeExternalId(url);
   return {
     startUrls: [url],
+    ...(videoId ? { videoIds: [videoId] } : {}),
     quality,
     storageType: "apify",
   };
@@ -45,6 +47,7 @@ export async function runApifyYouTubeDownloader({
 
 export function findApifyYouTubeDownloadUrl(raw) {
   if (!raw || raw.error || raw.status === "failed") return null;
+  if (isApifyYouTubeDemoResult(raw)) return null;
   const directUrl = firstString(
     raw.output?.url,
     raw.output?.downloadUrl,
@@ -63,6 +66,12 @@ export function findApifyYouTubeDownloadUrl(raw) {
   if (isDownloadableVideoUrl(directUrl)) return directUrl;
 
   return findNestedDownloadableUrl(raw);
+}
+
+export function isApifyYouTubeDemoResult(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+  const keys = Object.keys(raw);
+  return keys.length === 1 && keys[0] === "demo";
 }
 
 export function normalizeApifyYouTubeCandidate(raw, sourceUrl) {
