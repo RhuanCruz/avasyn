@@ -133,8 +133,7 @@ export function StepSelectContent({ avatarId, initialItems, onNext }: Props) {
         ))}
       </div>
 
-      {tab === "prontos" && (
-        <div>
+      <div style={{ display: tab === "prontos" ? undefined : "none" }}>
           {renderedQuery.loading ? (
             <div className="grid gap-3 grid-cols-2 sm:grid-cols-3">
               {Array.from({ length: 6 }).map((_, i) => (
@@ -180,10 +179,8 @@ export function StepSelectContent({ avatarId, initialItems, onNext }: Props) {
             </div>
           )}
         </div>
-      )}
 
-      {tab === "biblioteca" && (
-        <div>
+      <div style={{ display: tab === "biblioteca" ? undefined : "none" }}>
           {libraryQuery.loading ? (
             <div className="grid gap-3 grid-cols-2 sm:grid-cols-3">
               {Array.from({ length: 6 }).map((_, i) => (
@@ -227,10 +224,8 @@ export function StepSelectContent({ avatarId, initialItems, onNext }: Props) {
             </div>
           )}
         </div>
-      )}
 
-      {tab === "buscar" && (
-        <div className="col" style={{ gap: 12 }}>
+      <div className="col" style={{ display: tab === "buscar" ? undefined : "none", gap: 12 }}>
           <div className="flex gap-2">
             <input
               className="input"
@@ -291,7 +286,6 @@ export function StepSelectContent({ avatarId, initialItems, onNext }: Props) {
             </div>
           )}
         </div>
-      )}
 
       <div className="wizard-footer">
         <div className="flex flex-wrap gap-2 items-center">
