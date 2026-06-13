@@ -40,10 +40,11 @@ export type ZernioPresignResponse = {
 };
 
 export async function uploadVideoToZernio(fileName: string, bytes: ArrayBuffer) {
+  // Field names per Zernio docs: `filename` + `contentType`.
   const presign = await zernioRequest<ZernioPresignResponse>("/media/presign", {
     body: {
-      fileName,
-      fileType: "video/mp4",
+      filename: fileName,
+      contentType: "video/mp4",
     },
   });
 
@@ -83,7 +84,8 @@ export function buildInstagramReelPayload(input: {
     ],
     ...(input.scheduledFor
       ? {
-          scheduledFor: input.scheduledFor,
+          // Strip timezone offset so Zernio interprets as wall-clock SP time
+          scheduledFor: input.scheduledFor.replace(/([+-]\d{2}:\d{2}|Z)$/, ""),
           timezone: "America/Sao_Paulo",
         }
       : { publishNow: input.publishNow }),

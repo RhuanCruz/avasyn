@@ -31,6 +31,20 @@ describe("createFfmpegArgs", () => {
     expect(filter).toContain("y=434");
   });
 
+  test("renders overlay as black text on a white box", () => {
+    const args = createFfmpegArgs({
+      clipPath: "/tmp/clip.mp4",
+      outputPath: "/tmp/output.mp4",
+      overlayText: "Olha isso",
+      reactionPath: "/tmp/reaction.mp4",
+      withDrawText: true,
+    });
+    const filter = args[args.indexOf("-filter_complex") + 1];
+
+    expect(filter).toContain("fontcolor=black");
+    expect(filter).toContain("box=1:boxcolor=white:borderw=12");
+  });
+
   test("uses reaction position to crop the top split", () => {
     const args = createFfmpegArgs({
       clipPath: "/tmp/clip.mp4",

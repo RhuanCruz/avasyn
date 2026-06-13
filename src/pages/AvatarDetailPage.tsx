@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
 import {
@@ -18,6 +18,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAvatarState } from "@/hooks/useAvatarState";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
+import { PostCalendarTab } from "@/components/post-calendar/PostCalendarTab";
 import { createAvatarPhotoUrl, removeAvatarPhoto, uploadAvatarPhoto } from "@/lib/avatar-photo";
 import { slugifyAvatarName } from "@/lib/avatar-utils";
 import { invokeFunction } from "@/lib/api";
@@ -31,6 +32,7 @@ import type {
   PresenterVoiceOption,
   ReactionVideo,
   ReelJob,
+  SocialAccount,
   SourceVideo,
 } from "@/lib/types";
 
@@ -39,20 +41,27 @@ type AvatarSnapshot = {
   sourceVideos: SourceVideo[];
   reactionVideos: ReactionVideo[];
   jobs: ReelJob[];
+  activeAccount: SocialAccount | null;
 };
 
-type HubTab = "overview" | "biblioteca" | "sobre";
+type HubTab = "overview" | "biblioteca" | "sobre" | "calendario";
 
 export function AvatarDetailPage() {
   const params = useParams<{ avatarId: string }>();
   const avatarId = params.avatarId ?? null;
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const {
     avatars,
     refresh: refreshAvatars,
     selectedAvatarId,
     setSelectedAvatarId,
   } = useAvatarState(avatarId);
-  const [tab, setTab] = useState<HubTab>("overview");
+  const [tab, setTab] = useState<HubTab>(() => {
+    const t = searchParams.get("tab");
+    if (t === "calendario" || t === "overview" || t === "biblioteca" || t === "sobre") return t;
+    return "overview";
+  });
   const [saving, setSaving] = useState(false);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [form, setForm] = useState({
@@ -72,6 +81,21 @@ export function AvatarDetailPage() {
     };
   }, [photoPreviewUrl]);
 
+  useEffect(() => {
+    const connected = searchParams.get("connected");
+    const accountId = searchParams.get("accountId");
+    if (!avatarId || (!connected && !accountId)) return;
+
+    invokeFunction("zernio-sync-accounts", { avatarId })
+      .then(() => toast.success("Conta Instagram sincronizada"))
+      .catch((err: unknown) =>
+        toast.error(err instanceof Error ? err.message : "Falha ao sincronizar"),
+      )
+      .finally(() => {
+        navigate(`/avatars/${avatarId}?tab=calendario`, { replace: true });
+      });
+  }, [avatarId, searchParams, navigate]);
+
   const loadSnapshot = useCallback(async (): Promise<AvatarSnapshot> => {
     if (!avatarId) {
       return {
@@ -79,6 +103,7 @@ export function AvatarDetailPage() {
         sourceVideos: [],
         reactionVideos: [],
         jobs: [],
+        activeAccount: null,
       };
     }
 
@@ -87,6 +112,7 @@ export function AvatarDetailPage() {
       sourceVideosResult,
       reactionVideosResult,
       jobsResult,
+      accountsResult,
     ] = await Promise.all([
       supabase.from("avatars").select("*").eq("id", avatarId).maybeSingle(),
       supabase
@@ -107,6 +133,13 @@ export function AvatarDetailPage() {
         .eq("avatar_id", avatarId)
         .order("created_at", { ascending: false })
         .limit(16),
+      supabase
+        .from("social_accounts")
+        .select("*")
+        .eq("avatar_id", avatarId)
+        .eq("active", true)
+        .order("created_at", { ascending: false })
+        .limit(1),
     ]);
 
     if (avatarResult.error) throw avatarResult.error;
@@ -114,11 +147,14 @@ export function AvatarDetailPage() {
     if (reactionVideosResult.error) throw reactionVideosResult.error;
     if (jobsResult.error) throw jobsResult.error;
 
+    const accounts = (accountsResult.data ?? []) as SocialAccount[];
+
     return {
       avatar: (avatarResult.data ?? null) as Avatar | null,
       sourceVideos: (sourceVideosResult.data ?? []) as SourceVideo[],
       reactionVideos: (reactionVideosResult.data ?? []) as ReactionVideo[],
       jobs: (jobsResult.data ?? []) as ReelJob[],
+      activeAccount: accounts[0] ?? null,
     };
   }, [avatarId]);
 
@@ -127,6 +163,7 @@ export function AvatarDetailPage() {
     sourceVideos: [],
     reactionVideos: [],
     jobs: [],
+    activeAccount: null,
   });
 
   const avatar = snapshot.data.avatar;
@@ -249,6 +286,12 @@ export function AvatarDetailPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <h1 className="page-title" style={{ margin: 0 }}>{avatar?.name ?? "Avatar"}</h1>
                   {avatar ? <StatusPill kind="avatar" status={avatar.status} /> : null}
+                  {snapshot.data.activeAccount ? (
+                    <Pill tone="ok">
+                      <Icon name="instagram" size={12} style={{ marginRight: 4 }} />
+                      {snapshot.data.activeAccount.username ?? snapshot.data.activeAccount.display_name}
+                    </Pill>
+                  ) : null}
                 </div>
                 <p className="text-md muted" style={{ maxWidth: 700 }}>
                   {avatar?.persona_summary ?? "Defina a persona editorial e o papel deste avatar no sistema."}
@@ -290,6 +333,7 @@ export function AvatarDetailPage() {
           {[
             ["overview", "Visao geral"],
             ["biblioteca", "Biblioteca"],
+            ["calendario", "Calendário de Posts"],
             ["sobre", "Sobre"],
           ].map(([value, label]) => (
             <button
@@ -430,6 +474,10 @@ export function AvatarDetailPage() {
               </div>
             </HubSection>
           </div>
+        ) : null}
+
+        {tab === "calendario" && avatarId ? (
+          <PostCalendarTab avatarId={avatarId} />
         ) : null}
       </div>
     </>
