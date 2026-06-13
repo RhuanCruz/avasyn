@@ -17,7 +17,7 @@ export function createFfmpegArgs({
   const filter = withDrawText
     ? `${stackFilter};[stack]drawtext=text='${escapeDrawText(
       overlayText,
-    )}':fontsize=30:fontcolor=black:x=(w-text_w)/2:y=434:box=1:boxcolor=white:borderw=12[out]`
+    )}':fontsize=34:fontcolor=black:x=(w-text_w)/2:y=420:box=1:boxcolor=white:boxborderw=18[out]`
     : `${stackFilter};[stack]copy[out]`;
 
   return [

@@ -28,7 +28,7 @@ describe("createFfmpegArgs", () => {
 
     expect(filter).toContain("[0:v]scale=720:448:force_original_aspect_ratio=increase,crop=720:448:(iw-720)*0.500:(ih-448)*0.500,setsar=1[top]");
     expect(filter).toContain("[1:v]scale=720:832:force_original_aspect_ratio=increase,crop=720:832");
-    expect(filter).toContain("y=434");
+    expect(filter).toContain("y=420");
   });
 
   test("renders overlay as black text on a white box", () => {
@@ -42,7 +42,7 @@ describe("createFfmpegArgs", () => {
     const filter = args[args.indexOf("-filter_complex") + 1];
 
     expect(filter).toContain("fontcolor=black");
-    expect(filter).toContain("box=1:boxcolor=white:borderw=12");
+    expect(filter).toContain("box=1:boxcolor=white:boxborderw=18");
   });
 
   test("uses reaction position to crop the top split", () => {
