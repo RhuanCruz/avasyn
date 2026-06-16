@@ -12,8 +12,8 @@ declare const EdgeRuntime: {
 
 type ScheduleItem =
   | { kind: "rendered_job"; jobId: string }
-  | { kind: "library"; sourceVideoId: string }
-  | { kind: "url"; url: string };
+  | { kind: "library"; sourceVideoId: string; overlayText?: string; caption?: string }
+  | { kind: "url"; url: string; overlayText?: string; caption?: string };
 
 type ScheduleBody = {
   avatarId: string;
@@ -64,10 +64,19 @@ Deno.serve(async (request) => {
     const overlayPhrases = nonEmpty(body.overlayPhrases ?? []);
     const captions = nonEmpty(body.captions ?? []);
 
+    // A list is only needed as a fallback when some raw item leaves that field
+    // blank (i.e. still relies on the random pick).
+    const needsOverlayList = rawItems.some(
+      (item) => !(item.kind !== "rendered_job" && item.overlayText?.trim()),
+    );
+    const needsCaptionList = rawItems.some(
+      (item) => !(item.kind !== "rendered_job" && item.caption?.trim()),
+    );
+
     if (hasRaw) {
       if (reactionIds.length === 0) throw new Error("reactionIds is required for library/url items");
-      if (overlayPhrases.length === 0) throw new Error("overlayPhrases is required for library/url items");
-      if (captions.length === 0) throw new Error("captions is required for library/url items");
+      if (needsOverlayList && overlayPhrases.length === 0) throw new Error("overlayPhrases is required for library/url items");
+      if (needsCaptionList && captions.length === 0) throw new Error("captions is required for library/url items");
     }
 
     // Validate reactions belong to avatar (only if raw items)
@@ -102,8 +111,8 @@ Deno.serve(async (request) => {
         renderedUpdates.push({ jobId: item.jobId, slot: slot ?? "" });
       } else {
         const reactionId = reactionIds[rawIdx % reactionIds.length];
-        const overlayText = pickRandom(overlayPhrases);
-        const baseCaption = pickRandom(captions);
+        const overlayText = item.overlayText?.trim() || pickRandom(overlayPhrases);
+        const baseCaption = item.caption?.trim() || pickRandom(captions);
         const caption = body.hashtags ? `${baseCaption}\n\n${body.hashtags}` : baseCaption;
         const clipUrl =
           item.kind === "library" ? `source-video:${item.sourceVideoId}` : item.url;

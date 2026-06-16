@@ -57,8 +57,8 @@ export function SchedulePostsWizard({ avatarId, account, onClose, onScheduled }:
     setStep(nextHasRaw ? "react" : "schedule");
   }
 
-  function handleReactConfirmed(reactConfig: ReactConfig) {
-    setState((prev) => ({ ...prev, reactConfig }));
+  function handleReactConfirmed(reactConfig: ReactConfig, items: ScheduleItem[]) {
+    setState((prev) => ({ ...prev, reactConfig, items }));
     setStep("schedule");
   }
 
@@ -119,6 +119,7 @@ export function SchedulePostsWizard({ avatarId, account, onClose, onScheduled }:
             <StepConfigureReact
               avatarId={avatarId}
               initialConfig={state.reactConfig}
+              items={state.items}
               onBack={goBack}
               onNext={handleReactConfirmed}
             />

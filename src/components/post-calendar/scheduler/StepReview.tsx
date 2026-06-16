@@ -62,8 +62,8 @@ export function StepReview({ account, avatarId, onBack, onScheduled, state }: Pr
         hashtags: rawItems.length > 0 && reactConfig.hashtags ? reactConfig.hashtags : undefined,
         items: items.map((item) => {
           if (item.kind === "rendered_job") return { kind: "rendered_job", jobId: item.jobId };
-          if (item.kind === "library") return { kind: "library", sourceVideoId: item.sourceVideoId };
-          return { kind: "url", url: item.url };
+          if (item.kind === "library") return { kind: "library", sourceVideoId: item.sourceVideoId, overlayText: item.overlayText, caption: item.caption };
+          return { kind: "url", url: item.url, overlayText: item.overlayText, caption: item.caption };
         }),
         schedule: {
           weekdays: scheduleConfig.weekdays,

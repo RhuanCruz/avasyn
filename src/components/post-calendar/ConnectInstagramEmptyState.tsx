@@ -22,6 +22,7 @@ export function ConnectInstagramEmptyState({ avatarId, onSynced }: Props) {
       const redirectUrl = `${window.location.origin}/avatars/${avatarId}?tab=calendario&connected=instagram`;
       const response = await invokeFunction<ConnectResponse>("zernio-connect-url", {
         redirectUrl,
+        avatarId,
       });
       window.location.href = response.url;
     } catch (error) {

@@ -37,6 +37,7 @@ Deno.serve(async (request) => {
         .select("*")
         .eq("id", body.accountId)
         .eq("user_id", user?.id)
+        .eq("avatar_id", job.avatar_id)
         .single();
       if (accountError || !selectedAccount) throw new Error("Invalid account");
 
@@ -53,6 +54,9 @@ Deno.serve(async (request) => {
     }
 
     if (!account) throw new Error("Account is required before posting");
+    if (account.user_id !== job.user_id || account.avatar_id !== job.avatar_id) {
+      throw new Error("Account does not belong to this job's avatar");
+    }
 
     await service.from("reel_jobs").update({ status: "posting" }).eq("id", job.id);
 

@@ -51,7 +51,7 @@ export async function resolveOwnedAvatar(
   if (requestedAvatarId) {
     const { data, error } = await service
       .from("avatars")
-      .select("id,name")
+      .select("id,name,zernio_profile_id")
       .eq("id", requestedAvatarId)
       .eq("user_id", userId)
       .single();
@@ -65,7 +65,7 @@ export async function resolveOwnedAvatar(
 
   const { data, error } = await service
     .from("avatars")
-    .select("id,name")
+    .select("id,name,zernio_profile_id")
     .eq("user_id", userId)
     .order("created_at", { ascending: true })
     .limit(1)

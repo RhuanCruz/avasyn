@@ -33,6 +33,129 @@ export async function zernioRequest<T>(
   return (await response.json()) as T;
 }
 
+type AvatarWithProfile = {
+  id: string;
+  name?: string | null;
+  zernio_profile_id?: string | null;
+};
+
+type ServiceClient = {
+  from: (table: string) => {
+    update: (values: Record<string, unknown>) => {
+      eq: (column: string, value: unknown) => PromiseLike<{ error: unknown }>;
+    };
+  };
+};
+
+/**
+ * Zernio responses vary by endpoint (some use `_id`, some `id`, some nest the
+ * object under `profile`/`data`). Pull the profile id out of any of those.
+ */
+function extractZernioProfileId(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const obj = payload as Record<string, unknown>;
+
+  for (const key of ["_id", "id", "profileId", "profile_id"]) {
+    const value = obj[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+
+  for (const key of ["profile", "data"]) {
+    const nested = extractZernioProfileId(obj[key]);
+    if (nested) return nested;
+  }
+
+  return undefined;
+}
+
+/**
+ * Find an existing Zernio profile whose name embeds the given avatar id.
+ * Used to recover idempotently when a profile was already created for the
+ * avatar (e.g. a previous attempt that failed before persisting the id).
+ */
+async function findZernioProfileIdByAvatar(avatarId: string): Promise<string | undefined> {
+  const res = await zernioRequest<Record<string, unknown>>("/profiles");
+  let list: unknown[] = [];
+  if (Array.isArray(res)) {
+    list = res;
+  } else {
+    list =
+      (res.profiles as unknown[]) ??
+      (res.data as unknown[]) ??
+      (res.results as unknown[]) ??
+      // Fallback: first array-valued property of the response.
+      (Object.values(res).find((value) => Array.isArray(value)) as unknown[]) ??
+      [];
+  }
+
+  for (const item of list) {
+    if (item && typeof item === "object") {
+      const name = (item as Record<string, unknown>).name;
+      if (typeof name === "string" && name.includes(avatarId)) {
+        return extractZernioProfileId(item);
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Resolve the Zernio profile that isolates an avatar's social connections.
+ * Returns the profile already persisted on the avatar, or creates a new
+ * Zernio profile (one per avatar) and persists its id. Never falls back to a
+ * shared ZERNIO_PROFILE_ID.
+ *
+ * The profile name embeds the avatar id (a UUID) so it is globally unique:
+ * Zernio enforces unique profile names per account, and this also guarantees
+ * two avatars never share a profile even if they have the same display name.
+ */
+export async function resolveZernioProfileForAvatar(
+  service: ServiceClient,
+  avatar: AvatarWithProfile,
+): Promise<string> {
+  if (avatar.zernio_profile_id) {
+    return avatar.zernio_profile_id;
+  }
+
+  const profileName = `${avatar.name?.trim() || "Avatar"} (${avatar.id})`;
+
+  // Recover an existing profile first (idempotent across retries).
+  let profileId = await findZernioProfileIdByAvatar(avatar.id);
+
+  if (!profileId) {
+    try {
+      const created = await zernioRequest<Record<string, unknown>>("/profiles", {
+        body: { name: profileName },
+      });
+      profileId = extractZernioProfileId(created);
+    } catch (error) {
+      // If it already exists, fall through and look it up below.
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/already exists/i.test(message)) throw error;
+    }
+
+    // Create response may not echo the id (varies by endpoint) — re-list.
+    if (!profileId) {
+      profileId = await findZernioProfileIdByAvatar(avatar.id);
+    }
+  }
+
+  if (!profileId) {
+    throw new Error("Could not resolve a Zernio profile for this avatar");
+  }
+
+  const { error } = await service
+    .from("avatars")
+    .update({ zernio_profile_id: profileId })
+    .eq("id", avatar.id);
+  if (error) {
+    throw error instanceof Error ? error : new Error("Failed to persist Zernio profile id");
+  }
+
+  avatar.zernio_profile_id = profileId;
+  return profileId;
+}
+
 export type ZernioPresignResponse = {
   uploadUrl: string;
   publicUrl: string;

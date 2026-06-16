@@ -1,16 +1,21 @@
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
-import { getAuthenticatedUser } from "../_shared/supabase.ts";
-import { zernioRequest } from "../_shared/zernio.ts";
+import {
+  createServiceClient,
+  getAuthenticatedUser,
+  resolveOwnedAvatar,
+} from "../_shared/supabase.ts";
+import { resolveZernioProfileForAvatar, zernioRequest } from "../_shared/zernio.ts";
 
 Deno.serve(async (request) => {
   const options = handleOptions(request);
   if (options) return options;
 
   try {
-    await getAuthenticatedUser(request);
-    const { redirectUrl } = await request.json().catch(() => ({}));
-    const profileId = Deno.env.get("ZERNIO_PROFILE_ID");
-    if (!profileId) throw new Error("Missing ZERNIO_PROFILE_ID");
+    const user = await getAuthenticatedUser(request);
+    const service = createServiceClient();
+    const { redirectUrl, avatarId } = await request.json().catch(() => ({}));
+    const avatar = await resolveOwnedAvatar(service, user.id, avatarId);
+    const profileId = await resolveZernioProfileForAvatar(service, avatar);
 
     const params = new URLSearchParams({
       profileId,

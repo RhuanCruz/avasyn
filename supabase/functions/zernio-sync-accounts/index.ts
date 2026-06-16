@@ -4,7 +4,7 @@ import {
   getAuthenticatedUser,
   resolveOwnedAvatar,
 } from "../_shared/supabase.ts";
-import { zernioRequest } from "../_shared/zernio.ts";
+import { resolveZernioProfileForAvatar, zernioRequest } from "../_shared/zernio.ts";
 
 type ZernioAccount = {
   _id?: string;
@@ -29,8 +29,7 @@ Deno.serve(async (request) => {
     const service = createServiceClient();
     const body = await request.json().catch(() => ({}));
     const avatar = await resolveOwnedAvatar(service, user.id, body.avatarId);
-    const profileId = Deno.env.get("ZERNIO_PROFILE_ID");
-    if (!profileId) throw new Error("Missing ZERNIO_PROFILE_ID");
+    const profileId = await resolveZernioProfileForAvatar(service, avatar);
 
     const params = new URLSearchParams({
       platform: "instagram",
@@ -69,7 +68,7 @@ Deno.serve(async (request) => {
     if (rows.length > 0) {
       const { error } = await service
         .from("social_accounts")
-        .upsert(rows, { onConflict: "user_id,zernio_account_id" });
+        .upsert(rows, { onConflict: "user_id,avatar_id,zernio_account_id" });
       if (error) throw error;
     }
 
