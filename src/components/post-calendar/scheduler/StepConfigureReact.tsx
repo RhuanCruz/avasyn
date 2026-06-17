@@ -43,10 +43,10 @@ export function StepConfigureReact({ avatarId, initialConfig, items, onBack, onN
   });
 
   function setOverride(idx: number, field: keyof PerItemOverride, value: string) {
-    setOverrides((prev) => ({
-      ...prev,
-      [idx]: { overlayText: "", caption: "", ...prev[idx], [field]: value },
-    }));
+    setOverrides((prev) => {
+      const current = prev[idx] ?? { overlayText: "", caption: "" };
+      return { ...prev, [idx]: { ...current, [field]: value } };
+    });
   }
 
   const customizedCount = rawItemIndexes.filter(
