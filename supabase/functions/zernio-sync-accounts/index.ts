@@ -62,10 +62,34 @@ Deno.serve(async (request) => {
 
     // Definitive, compact diagnostic: how many accounts and which platforms.
     console.log(
-      "Zernio /accounts:",
+      "Zernio /accounts (profile filter):",
       "count=", accounts.length,
       "platforms=", JSON.stringify(accounts.map((a) => ({ id: a._id ?? a.id, platform: a.platform }))),
     );
+
+    // If nothing for a platform we expected, check globally: maybe the account
+    // connected on Zernio but didn't bind to this profile.
+    const hasYoutube = accounts.some((a) => normalizePlatform(a.platform) === "youtube");
+    if (!hasYoutube) {
+      try {
+        const globalResp = await zernioRequest<{
+          accounts?: ZernioAccount[];
+          data?: ZernioAccount[];
+        }>("/accounts");
+        const globalAccounts = globalResp.accounts ?? globalResp.data ?? [];
+        console.log(
+          "Zernio /accounts (NO profile filter):",
+          "count=", globalAccounts.length,
+          "platforms=", JSON.stringify(globalAccounts.map((a) => ({
+            id: a._id ?? a.id,
+            platform: a.platform,
+            profileId: extractAccountProfileId(a.profileId),
+          }))),
+        );
+      } catch (e) {
+        console.log("Global /accounts check failed:", String(e));
+      }
+    }
 
     const rows = accounts
       .map((account) => {

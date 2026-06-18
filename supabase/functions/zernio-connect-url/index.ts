@@ -36,6 +36,14 @@ Deno.serve(async (request) => {
     }>(
       `/connect/${platform}?${params.toString()}`,
     );
+
+    console.log(
+      "Zernio connect",
+      platform,
+      "profileId=", profileId,
+      "response=", JSON.stringify(response).slice(0, 1500),
+    );
+
     const url = response.authUrl ?? response.auth_url ?? response.url ?? response.connectUrl;
     if (!url) throw new Error("Zernio did not return a connect URL");
 
