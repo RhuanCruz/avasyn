@@ -50,6 +50,7 @@ export function PostCalendarView({ accounts, avatarId, posts, onRefresh }: Props
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const [confirmDisconnectId, setConfirmDisconnectId] = useState<string | null>(null);
   const [connectingPlatform, setConnectingPlatform] = useState<SocialPlatform | null>(null);
+  const [syncing, setSyncing] = useState(false);
   const [selectedPost, setSelectedPost] = useState<ReelJob | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -115,6 +116,28 @@ export function PostCalendarView({ accounts, avatarId, posts, onRefresh }: Props
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Falha ao iniciar conexão");
       setConnectingPlatform(null);
+    }
+  }
+
+  async function handleSync() {
+    setSyncing(true);
+    try {
+      const resp = await invokeFunction<{ count?: number; returned?: number }>(
+        "zernio-sync-accounts",
+        { avatarId },
+      );
+      if ((resp?.count ?? 0) > 0) {
+        toast.success("Contas sincronizadas");
+      } else {
+        toast.warning(
+          `Nenhuma conta nova encontrada no Zernio${resp?.returned ? ` (${resp.returned} retornada(s), mas nenhuma suportada)` : ""}.`,
+        );
+      }
+      await onRefresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Falha ao sincronizar");
+    } finally {
+      setSyncing(false);
     }
   }
 
@@ -270,6 +293,17 @@ export function PostCalendarView({ accounts, avatarId, posts, onRefresh }: Props
               : `+ ${PLATFORM_LABELS[platform]}`}
           </Button>
         ))}
+
+        <Button
+          disabled={syncing}
+          onClick={() => void handleSync()}
+          size="sm"
+          variant="outline"
+          title="Buscar contas conectadas no Zernio"
+        >
+          <Icon name="refresh" size={12} style={{ marginRight: 4 }} />
+          {syncing ? "Sincronizando..." : "Sincronizar"}
+        </Button>
       </div>
 
       {mode === "list" && filteredPosts.length > 0 ? (

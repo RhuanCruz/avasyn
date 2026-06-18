@@ -36,8 +36,17 @@ export function ConnectInstagramEmptyState({ avatarId, onSynced }: Props) {
   async function handleSync() {
     setSyncing(true);
     try {
-      await invokeFunction("zernio-sync-accounts", { avatarId });
-      toast.success("Contas sincronizadas");
+      const resp = await invokeFunction<{ count?: number; returned?: number }>(
+        "zernio-sync-accounts",
+        { avatarId },
+      );
+      if ((resp?.count ?? 0) > 0) {
+        toast.success("Contas sincronizadas");
+      } else {
+        toast.warning(
+          `Nenhuma conta encontrada no Zernio${resp?.returned ? ` (${resp.returned} retornada(s), nenhuma suportada)` : ""}. Verifique se a conexão concluiu.`,
+        );
+      }
       await onSynced();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao sincronizar");

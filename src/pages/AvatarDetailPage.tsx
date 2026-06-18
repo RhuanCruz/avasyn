@@ -88,10 +88,18 @@ export function AvatarDetailPage() {
 
     const platform = connected && ["instagram", "youtube"].includes(connected) ? connected : undefined;
     const syncPayload = platform ? { avatarId, platform } : { avatarId };
-    const platformLabel = platform === "youtube" ? "YouTube" : "Instagram";
+    const platformLabel = platform === "youtube" ? "YouTube" : platform === "instagram" ? "Instagram" : "Conta";
 
-    invokeFunction("zernio-sync-accounts", syncPayload)
-      .then(() => toast.success(`Conta ${platformLabel} sincronizada`))
+    invokeFunction<{ count?: number }>("zernio-sync-accounts", syncPayload)
+      .then((resp) => {
+        if ((resp?.count ?? 0) > 0) {
+          toast.success(`${platformLabel} sincronizada`);
+        } else {
+          toast.warning(
+            `Nenhuma conta ${platformLabel} encontrada no Zernio. A conexão pode não ter concluído — tente reconectar ou sincronizar novamente.`,
+          );
+        }
+      })
       .catch((err: unknown) =>
         toast.error(err instanceof Error ? err.message : "Falha ao sincronizar"),
       )
