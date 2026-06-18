@@ -57,9 +57,18 @@ async function buildSigningKey(secretKey: string, dateStr: string): Promise<Arra
   return hmacSha256(k3, "aws4_request");
 }
 
+// RFC 3986 strict encoding: encodeURIComponent leaves !'()* unencoded, but
+// S3/R2 SigV4 requires them percent-encoded or the signature won't match.
+function rfc3986(segment: string): string {
+  return encodeURIComponent(segment).replace(
+    /[!'()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
 // Encode each URL path segment individually, preserving slashes.
 function encodeUriPath(path: string): string {
-  return path.split("/").map(encodeURIComponent).join("/");
+  return path.split("/").map(rfc3986).join("/");
 }
 
 async function presign(method: string, key: string, expiresSeconds: number): Promise<string> {
@@ -105,7 +114,7 @@ async function presign(method: string, key: string, expiresSeconds: number): Pro
   const signingKey = await buildSigningKey(secretAccessKey, date);
   const signature = toHex(await hmacSha256(signingKey, stringToSign));
 
-  return `https://${host}/${bucket}/${key}?${canonicalQueryString}&X-Amz-Signature=${signature}`;
+  return `https://${host}/${encodeUriPath(bucket)}/${encodeUriPath(key)}?${canonicalQueryString}&X-Amz-Signature=${signature}`;
 }
 
 export function r2PresignGet(key: string, expiresSeconds = 7200): Promise<string> {

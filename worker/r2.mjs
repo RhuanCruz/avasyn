@@ -38,8 +38,16 @@ function buildSigningKey(secretKey, dateStr) {
   return hmac(k3, "aws4_request");
 }
 
+// RFC 3986 strict encoding: encodeURIComponent leaves !'()* unencoded, but
+// S3/R2 SigV4 requires them percent-encoded or the signature won't match.
+function rfc3986(segment) {
+  return encodeURIComponent(segment).replace(
+    /[!'()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
 function encodeUriPath(path) {
-  return path.split("/").map(encodeURIComponent).join("/");
+  return path.split("/").map(rfc3986).join("/");
 }
 
 function presign(method, key, expiresSeconds) {
@@ -85,7 +93,7 @@ function presign(method, key, expiresSeconds) {
   const signingKey = buildSigningKey(secretAccessKey, date);
   const signature = createHmac("sha256", signingKey).update(stringToSign).digest("hex");
 
-  return `https://${host}/${bucket}/${key}?${canonicalQueryString}&X-Amz-Signature=${signature}`;
+  return `https://${host}/${encodeUriPath(bucket)}/${encodeUriPath(key)}?${canonicalQueryString}&X-Amz-Signature=${signature}`;
 }
 
 export async function r2UploadFile(key, localPath, contentType) {
