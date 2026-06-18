@@ -14,6 +14,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { useAvatarState } from "@/hooks/useAvatarState";
 import { invokeFunction } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
+import { getStorageSignedUrl } from "@/lib/storage-client";
 import type {
   ContentSearchPageTokens,
   ContentSearchPlatform,
@@ -822,16 +823,12 @@ function QuickReactionSplitPreview({
     setReactionUrl(null);
     if (!reaction) return;
 
-    supabase.storage
-      .from("reaction-videos")
-      .createSignedUrl(reaction.storage_path, 60 * 30)
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        if (error) {
-          toast.error(error.message);
-          return;
-        }
-        setReactionUrl(data.signedUrl);
+    getStorageSignedUrl("reaction-videos", reaction.storage_path)
+      .then((url) => {
+        if (!cancelled) setReactionUrl(url);
+      })
+      .catch((err) => {
+        if (!cancelled) toast.error(err instanceof Error ? err.message : "Falha ao carregar vídeo");
       });
 
     return () => {

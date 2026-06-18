@@ -14,6 +14,7 @@ import {
 import { useAuth } from "@/auth/AuthContext";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { supabase } from "@/lib/supabase";
+import { deleteStorageObject, getStorageUploadUrl } from "@/lib/storage-client";
 import type { ReactionVideo } from "@/lib/types";
 
 export function ReactionsPage() {
@@ -39,17 +40,22 @@ export function ReactionsPage() {
 
     setUploading(true);
     try {
-      const storagePath = `${user.id}/${crypto.randomUUID()}-${file.name}`;
-      const upload = await supabase.storage
-        .from("reaction-videos")
-        .upload(storagePath, file, { contentType: file.type, upsert: false });
-
-      if (upload.error) throw upload.error;
+      const { path, uploadUrl } = await getStorageUploadUrl(
+        "reaction-videos",
+        file.name,
+        file.type,
+      );
+      const uploadResponse = await fetch(uploadUrl, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type },
+      });
+      if (!uploadResponse.ok) throw new Error("Falha no upload do arquivo");
 
       const { error } = await supabase.from("reaction_videos").insert({
         user_id: user.id,
         name: file.name,
-        storage_path: storagePath,
+        storage_path: path,
       });
 
       if (error) throw error;
@@ -66,10 +72,7 @@ export function ReactionsPage() {
 
   async function removeReaction(reaction: ReactionVideo) {
     try {
-      const storage = await supabase.storage
-        .from("reaction-videos")
-        .remove([reaction.storage_path]);
-      if (storage.error) throw storage.error;
+      await deleteStorageObject("reaction-videos", reaction.storage_path);
 
       const { error } = await supabase
         .from("reaction_videos")

@@ -4,6 +4,8 @@ import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { r2UploadFile, r2DownloadFile } from "./r2.mjs";
+
 import { createClient } from "@supabase/supabase-js";
 
 import { createFfmpegArgs } from "./ffmpeg-options.mjs";
@@ -36,6 +38,7 @@ import { parseTikTokSearchOutput } from "./tiktok-search.mjs";
 import { createTikTokSearchArgs, createYtDlpArgs } from "./ytdlp-options.mjs";
 
 const port = Number(process.env.PORT ?? 8080);
+const storageBackend = process.env.STORAGE_BACKEND ?? "";
 const supabaseUrl = process.env.SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const workerSecret = process.env.VIDEO_WORKER_SECRET;
@@ -175,13 +178,7 @@ async function processJob(jobId) {
     });
 
     const storagePath = `${job.user_id}/${job.id}.mp4`;
-    const upload = await supabase.storage
-      .from("generated-reels")
-      .upload(storagePath, await readFile(outputPath), {
-        contentType: "video/mp4",
-        upsert: true,
-      });
-    if (upload.error) throw upload.error;
+    await uploadStorageFile("generated-reels", storagePath, outputPath, "video/mp4");
 
     await updateJob(jobId, { status: "rendered", output_path: storagePath });
 
@@ -616,6 +613,10 @@ async function storeImportedVideo(mediaImport, candidate, workdir) {
 }
 
 async function uploadStorageFile(bucket, storagePath, localPath, contentType) {
+  if (storageBackend === "r2") {
+    await r2UploadFile(`${bucket}/${storagePath}`, localPath, contentType);
+    return;
+  }
   const upload = await supabase.storage
     .from(bucket)
     .upload(storagePath, await readFile(localPath), { contentType, upsert: true });
@@ -696,11 +697,14 @@ async function hydrateSourceVideo(job) {
 }
 
 async function downloadStorageFile(bucket, storagePath, outputPath) {
+  if (storageBackend === "r2") {
+    await r2DownloadFile(`${bucket}/${storagePath}`, outputPath);
+    return;
+  }
   const { data, error } = await supabase.storage.from(bucket).download(storagePath);
   if (error || !data) {
     throw new Error(`Failed to download ${bucket} file`);
   }
-
   await writeFile(outputPath, Buffer.from(await data.arrayBuffer()));
 }
 

@@ -29,6 +29,7 @@ import { useAvatarState } from "@/hooks/useAvatarState";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { invokeFunction } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
+import { getStorageSignedUrl } from "@/lib/storage-client";
 import type { ReactionVideo, SourceVideo } from "@/lib/types";
 
 type CreateJobsResponse = {
@@ -474,10 +475,8 @@ function ReactionPositionModal({
   useEffect(() => {
     let active = true;
     async function loadUrl() {
-      const { data, error } = await supabase.storage
-        .from("reaction-videos")
-        .createSignedUrl(reaction.storage_path, 60 * 30);
-      if (active) setVideoUrl(error ? null : data.signedUrl);
+      const url = await getStorageSignedUrl("reaction-videos", reaction.storage_path).catch(() => null);
+      if (active) setVideoUrl(url);
     }
     void loadUrl();
     return () => {

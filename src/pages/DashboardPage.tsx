@@ -17,6 +17,7 @@ import { useAvatarState } from "@/hooks/useAvatarState";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { invokeFunction } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
+import { getStorageSignedUrl } from "@/lib/storage-client";
 import type { Avatar, ReelJob } from "@/lib/types";
 
 type DashboardSnapshot = {
@@ -103,16 +104,15 @@ export function DashboardPage() {
       return;
     }
 
-    const { data, error } = await supabase.storage
-      .from("generated-reels")
-      .createSignedUrl(job.output_path, 60 * 30);
-
-    if (error || !data?.signedUrl) {
-      toast.error(error?.message ?? "Falha ao abrir video");
+    let signedUrl: string;
+    try {
+      signedUrl = await getStorageSignedUrl("generated-reels", job.output_path);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Falha ao abrir video");
       return;
     }
 
-    window.open(data.signedUrl, "_blank", "noreferrer");
+    window.open(signedUrl, "_blank", "noreferrer");
   }
 
   const counts = snapshot.data.jobs.reduce(

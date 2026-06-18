@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { supabase } from "@/lib/supabase";
+import { invokeFunction } from "@/lib/api";
 
 type StorageBucket =
   | "reaction-videos"
@@ -56,10 +56,11 @@ async function flushQueue(bucket: StorageBucket) {
 
   const byPath = new Map<string, string>();
   try {
-    const { data, error } = await supabase.storage
-      .from(bucket)
-      .createSignedUrls(paths, SIGN_TTL_SECONDS);
-    if (!error && data) {
+    const data = await invokeFunction<{ path: string; signedUrl: string | null }[]>(
+      "get-signed-url",
+      { bucket, paths },
+    );
+    if (data) {
       for (const item of data) {
         if (item.path && item.signedUrl) {
           byPath.set(item.path, item.signedUrl);

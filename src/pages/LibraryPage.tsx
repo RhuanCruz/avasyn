@@ -17,6 +17,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { useAvatarState } from "@/hooks/useAvatarState";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { supabase } from "@/lib/supabase";
+import { deleteStorageObject, getStorageUploadUrl } from "@/lib/storage-client";
 import type { ReactionVideo, SourceVideo } from "@/lib/types";
 
 type AddMode = "menu" | "upload-source" | "upload-reaction" | null;
@@ -128,18 +129,20 @@ export function LibraryPage() {
 
     try {
       for (const file of files) {
-        const storagePath = `${user.id}/${crypto.randomUUID()}-${file.name}`;
-        const upload = await supabase.storage
-          .from(bucket)
-          .upload(storagePath, file, { contentType: file.type, upsert: false });
-        if (upload.error) throw upload.error;
+        const { path, uploadUrl } = await getStorageUploadUrl(bucket, file.name, file.type);
+        const uploadResponse = await fetch(uploadUrl, {
+          method: "PUT",
+          body: file,
+          headers: { "Content-Type": file.type },
+        });
+        if (!uploadResponse.ok) throw new Error("Falha no upload do arquivo");
 
         if (uploadKind === "reaction") {
           const { error } = await supabase.from("reaction_videos").insert({
             avatar_id: selectedAvatarId,
             user_id: user.id,
             name: file.name,
-            storage_path: storagePath,
+            storage_path: path,
           });
           if (error) throw error;
         } else {
@@ -147,7 +150,7 @@ export function LibraryPage() {
             avatar_id: selectedAvatarId,
             user_id: user.id,
             name: file.name,
-            storage_path: storagePath,
+            storage_path: path,
             source_type: "upload",
           });
           if (error) throw error;
@@ -178,18 +181,12 @@ export function LibraryPage() {
       const reactionVideos = snapshot.data.reactionVideos.filter((video) => reactionIds.includes(video.id));
 
       if (sourceVideos.length > 0) {
-        const { error: removeSourceFilesError } = await supabase.storage
-          .from("source-videos")
-          .remove(sourceVideos.map((video) => video.storage_path));
-        if (removeSourceFilesError) throw removeSourceFilesError;
+        await deleteStorageObject("source-videos", sourceVideos.map((video) => video.storage_path));
 
         const thumbnailPaths = sourceVideos.flatMap((video) =>
           video.thumbnail_path ? [video.thumbnail_path] : []);
         if (thumbnailPaths.length > 0) {
-          const { error: removeThumbsError } = await supabase.storage
-            .from("source-thumbnails")
-            .remove(thumbnailPaths);
-          if (removeThumbsError) throw removeThumbsError;
+          await deleteStorageObject("source-thumbnails", thumbnailPaths);
         }
 
         const { error: deleteSourceRowsError } = await supabase
@@ -200,10 +197,7 @@ export function LibraryPage() {
       }
 
       if (reactionVideos.length > 0) {
-        const { error: removeReactionFilesError } = await supabase.storage
-          .from("reaction-videos")
-          .remove(reactionVideos.map((video) => video.storage_path));
-        if (removeReactionFilesError) throw removeReactionFilesError;
+        await deleteStorageObject("reaction-videos", reactionVideos.map((video) => video.storage_path));
 
         const { error: deleteReactionRowsError } = await supabase
           .from("reaction_videos")
