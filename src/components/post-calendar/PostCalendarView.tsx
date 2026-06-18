@@ -122,16 +122,17 @@ export function PostCalendarView({ accounts, avatarId, posts, onRefresh }: Props
   async function handleSync() {
     setSyncing(true);
     try {
-      const resp = await invokeFunction<{ count?: number; returned?: number }>(
+      const resp = await invokeFunction<{ count?: number; returned?: number; returnedPlatforms?: string[] }>(
         "zernio-sync-accounts",
         { avatarId },
       );
       if ((resp?.count ?? 0) > 0) {
         toast.success("Contas sincronizadas");
       } else {
-        toast.warning(
-          `Nenhuma conta nova encontrada no Zernio${resp?.returned ? ` (${resp.returned} retornada(s), mas nenhuma suportada)` : ""}.`,
-        );
+        const onZernio = resp?.returnedPlatforms?.length
+          ? ` O Zernio só tem conectado: ${[...new Set(resp.returnedPlatforms)].join(", ")}.`
+          : " O Zernio não retornou nenhuma conta.";
+        toast.warning(`Nenhuma conta nova encontrada.${onZernio}`);
       }
       await onRefresh();
     } catch (err) {

@@ -90,13 +90,16 @@ export function AvatarDetailPage() {
     const syncPayload = platform ? { avatarId, platform } : { avatarId };
     const platformLabel = platform === "youtube" ? "YouTube" : platform === "instagram" ? "Instagram" : "Conta";
 
-    invokeFunction<{ count?: number }>("zernio-sync-accounts", syncPayload)
+    invokeFunction<{ count?: number; returnedPlatforms?: string[] }>("zernio-sync-accounts", syncPayload)
       .then((resp) => {
         if ((resp?.count ?? 0) > 0) {
           toast.success(`${platformLabel} sincronizada`);
         } else {
+          const onZernio = resp?.returnedPlatforms?.length
+            ? ` O Zernio só tem conectado: ${[...new Set(resp.returnedPlatforms)].join(", ")}.`
+            : " O Zernio não retornou nenhuma conta.";
           toast.warning(
-            `Nenhuma conta ${platformLabel} encontrada no Zernio. A conexão pode não ter concluído — tente reconectar ou sincronizar novamente.`,
+            `Nenhuma conta ${platformLabel} encontrada no Zernio.${onZernio} A conexão pode não ter concluído — confira no painel do Zernio se o YouTube está habilitado.`,
           );
         }
       })

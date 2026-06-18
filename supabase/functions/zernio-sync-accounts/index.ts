@@ -58,12 +58,14 @@ Deno.serve(async (request) => {
       data?: ZernioAccount[];
     }>(`/accounts?${params.toString()}`);
 
-    console.log(
-      "Zernio /accounts response:",
-      JSON.stringify(response).slice(0, 2000),
-    );
-
     const accounts = response.accounts ?? response.data ?? [];
+
+    // Definitive, compact diagnostic: how many accounts and which platforms.
+    console.log(
+      "Zernio /accounts:",
+      "count=", accounts.length,
+      "platforms=", JSON.stringify(accounts.map((a) => ({ id: a._id ?? a.id, platform: a.platform }))),
+    );
 
     const rows = accounts
       .map((account) => {
@@ -107,6 +109,9 @@ Deno.serve(async (request) => {
       platforms: platformsFound,
       // How many raw accounts Zernio returned (helps diagnose empty syncs)
       returned: accounts.length,
+      // The raw platform strings Zernio returned, so the UI can show what's
+      // actually connected on Zernio's side (e.g. only "instagram").
+      returnedPlatforms: accounts.map((a) => a.platform).filter(Boolean),
     });
   } catch (error) {
     return jsonResponse(
