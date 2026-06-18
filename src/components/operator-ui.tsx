@@ -84,6 +84,8 @@ export function Icon({ className, name, size = 14, style }: IconProps) {
       return <svg {...base}><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.5 1.5" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7L12.5 17.2" /></svg>;
     case "instagram":
       return <svg {...base}><rect x="3" y="3" width="18" height="18" rx="5" /><circle cx="12" cy="12" r="4" /><circle cx="17.5" cy="6.5" r=".8" fill="currentColor" /></svg>;
+    case "youtube":
+      return <svg {...base}><path d="M22 7.5s-.25-1.75-1-2.5c-.96-1-2.03-1-2.52-1.06C15.94 3.75 12 3.75 12 3.75s-3.94 0-6.48.19C4.97 4 3.9 4 2.94 5 2.19 5.75 2 7.5 2 7.5S1.75 9.5 1.75 11.5v1.88C1.75 15.38 2 17.38 2 17.38s.25 1.75 1 2.5c.96 1 2.22.97 2.78 1.06C7.5 21.12 12 21.13 12 21.13s3.94 0 6.48-.22c.5-.06 1.56-.06 2.52-1.06.75-.75 1-2.5 1-2.5S22.25 15.5 22.25 13.5v-1.88C22.25 9.5 22 7.5 22 7.5zM9.75 15.02V8.98l6.5 3.04-6.5 3z" fill="currentColor" stroke="none" /></svg>;
     case "tiktok":
       return <svg {...base}><path d="M16 4v8.5a4.5 4.5 0 1 1-4.5-4.5" /><path d="M16 4c.5 2.4 2.3 4.2 4.5 4.5" /></svg>;
     case "settings":

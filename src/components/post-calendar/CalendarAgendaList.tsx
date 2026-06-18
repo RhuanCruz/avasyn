@@ -1,6 +1,6 @@
 import { Icon, StatusPill } from "@/components/operator-ui";
 import { formatDayLabel, formatDayKey, formatTime, groupByDay } from "@/lib/calendar-utils";
-import type { ReelJob } from "@/lib/types";
+import type { ReelJob, SocialPlatform } from "@/lib/types";
 
 type Props = {
   posts: ReelJob[];
@@ -42,6 +42,11 @@ export function CalendarAgendaList({
             <div className="agenda-day-label">{label}</div>
             {dayPosts.map((post) => {
               const timeRaw = post.scheduled_post_at ?? post.posted_at;
+              const platforms: SocialPlatform[] =
+                post.reel_job_targets && post.reel_job_targets.length > 0
+                  ? [...new Set(post.reel_job_targets.map((t) => t.platform))]
+                  : [];
+
               return (
                 <button
                   className={`agenda-item ${selectMode && selectedIds?.has(post.id) ? "agenda-item--selected" : ""}`}
@@ -62,7 +67,12 @@ export function CalendarAgendaList({
                     <span className="agenda-item-caption">
                       {post.caption || "Sem legenda"}
                     </span>
-                    <StatusPill kind="job" status={post.status} />
+                    <span className="flex items-center gap-1">
+                      {platforms.map((p) => (
+                        <Icon key={p} name={p} size={12} style={{ color: "var(--text-muted)" }} />
+                      ))}
+                      <StatusPill kind="job" status={post.status} />
+                    </span>
                   </div>
                   {!selectMode ? (
                     <Icon name="chevron-right" size={13} style={{ color: "var(--text-muted)", flexShrink: 0 }} />

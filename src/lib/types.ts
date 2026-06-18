@@ -148,13 +148,28 @@ export type MediaImport = {
   completed_at: string | null;
 };
 
+export type SocialPlatform = "instagram" | "youtube";
+
+export type ReelJobTarget = {
+  id: string;
+  job_id: string;
+  account_id: string;
+  platform: SocialPlatform;
+  zernio_post_id: string | null;
+  platform_post_url: string | null;
+  status: PostStatus;
+  error_message: string | null;
+  posted_at: string | null;
+  created_at: string;
+};
+
 export type SocialAccount = {
   id: string;
   user_id: string;
   avatar_id: string;
   zernio_profile_id: string;
   zernio_account_id: string;
-  platform: "instagram";
+  platform: SocialPlatform;
   username: string | null;
   display_name: string;
   profile_url: string | null;
@@ -198,6 +213,7 @@ export type ReelJob = {
   scheduled_post_at: string | null;
   posted_at: string | null;
   created_at: string;
+  reel_job_targets?: ReelJobTarget[];
 };
 
 export type PostHistory = {

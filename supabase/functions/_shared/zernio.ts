@@ -184,27 +184,49 @@ export async function uploadVideoToZernio(fileName: string, bytes: ArrayBuffer) 
   return presign.publicUrl;
 }
 
-export function buildInstagramReelPayload(input: {
+export type ZernioTarget = {
+  platform: "instagram" | "youtube";
   accountId: string;
+  shareToFeed?: boolean;
+};
+
+function firstLine(text: string): string {
+  return text.split("\n")[0]?.trim() ?? "";
+}
+
+export function buildReelPostPayload(input: {
+  targets: ZernioTarget[];
   caption: string;
   mediaUrl: string;
   publishNow: boolean;
   scheduledFor?: string | null;
   shareToFeed: boolean;
 }) {
+  const platforms = input.targets.map((t) => {
+    if (t.platform === "youtube") {
+      return {
+        platform: "youtube",
+        accountId: t.accountId,
+        platformSpecificData: {
+          title: firstLine(input.caption) || "Untitled Video",
+          visibility: "public",
+        },
+      };
+    }
+    return {
+      platform: "instagram",
+      accountId: t.accountId,
+      platformSpecificData: {
+        contentType: "reels",
+        shareToFeed: t.shareToFeed ?? input.shareToFeed,
+      },
+    };
+  });
+
   return {
     content: input.caption,
     mediaItems: [{ type: "video", url: input.mediaUrl }],
-    platforms: [
-      {
-        platform: "instagram",
-        accountId: input.accountId,
-        platformSpecificData: {
-          contentType: "reels",
-          shareToFeed: input.shareToFeed,
-        },
-      },
-    ],
+    platforms,
     ...(input.scheduledFor
       ? {
           // Strip timezone offset so Zernio interprets as wall-clock SP time
@@ -213,6 +235,25 @@ export function buildInstagramReelPayload(input: {
         }
       : { publishNow: input.publishNow }),
   };
+}
+
+/** @deprecated Use buildReelPostPayload with targets array instead */
+export function buildInstagramReelPayload(input: {
+  accountId: string;
+  caption: string;
+  mediaUrl: string;
+  publishNow: boolean;
+  scheduledFor?: string | null;
+  shareToFeed: boolean;
+}) {
+  return buildReelPostPayload({
+    targets: [{ platform: "instagram", accountId: input.accountId }],
+    caption: input.caption,
+    mediaUrl: input.mediaUrl,
+    publishNow: input.publishNow,
+    scheduledFor: input.scheduledFor,
+    shareToFeed: input.shareToFeed,
+  });
 }
 
 export async function verifyZernioWebhookSignature(

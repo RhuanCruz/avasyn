@@ -1,19 +1,19 @@
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { Pill } from "@/components/operator-ui";
+import { Icon, Pill } from "@/components/operator-ui";
 import { Button } from "@/components/ui/button";
 import { computeSlots } from "@/lib/calendar-utils";
 import { invokeFunction } from "@/lib/api";
-import type { SocialAccount } from "@/lib/types";
+import type { SocialAccount, SocialPlatform } from "@/lib/types";
 
 import type { WizardState } from "./types";
 
 type Props = {
-  account: SocialAccount;
   avatarId: string;
   onBack: () => void;
   onScheduled: () => void;
+  selectedAccounts: SocialAccount[];
   state: WizardState;
 };
 
@@ -27,8 +27,12 @@ const MONTH_NAMES = [
   "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
   "Jul", "Ago", "Set", "Out", "Nov", "Dez",
 ];
+const PLATFORM_LABELS: Record<SocialPlatform, string> = {
+  instagram: "Instagram",
+  youtube: "YouTube",
+};
 
-export function StepReview({ account, avatarId, onBack, onScheduled, state }: Props) {
+export function StepReview({ avatarId, onBack, onScheduled, selectedAccounts, state }: Props) {
   const [submitting, setSubmitting] = useState(false);
 
   const { items, reactConfig, scheduleConfig } = state;
@@ -51,11 +55,15 @@ export function StepReview({ account, avatarId, onBack, onScheduled, state }: Pr
   const lastDate = lastSlot ? new Date(lastSlot) : null;
 
   async function handleSubmit() {
+    if (selectedAccounts.length === 0) {
+      toast.error("Selecione pelo menos uma rede para postar");
+      return;
+    }
     setSubmitting(true);
     try {
       const payload = {
         avatarId,
-        accountId: account.id,
+        accountIds: selectedAccounts.map((a) => a.id),
         reactionIds: rawItems.length > 0 ? reactConfig.reactionIds : undefined,
         overlayPhrases: rawItems.length > 0 ? reactConfig.overlayPhrases : undefined,
         captions: rawItems.length > 0 ? reactConfig.captions : undefined,
@@ -89,8 +97,15 @@ export function StepReview({ account, avatarId, onBack, onScheduled, state }: Pr
         <div className="card card-pad" style={{ padding: 14 }}>
           <div className="text-md" style={{ marginBottom: 10 }}>Resumo</div>
           <div className="grid gap-2">
-            <SummaryRow label="Conta">
-              <span>{account.username ?? account.display_name} · Instagram</span>
+            <SummaryRow label="Redes">
+              <div className="flex flex-wrap gap-1">
+                {selectedAccounts.map((a) => (
+                  <Pill key={a.id} tone="base">
+                    <Icon name={a.platform} size={11} style={{ marginRight: 4 }} />
+                    {a.username ?? a.display_name} · {PLATFORM_LABELS[a.platform]}
+                  </Pill>
+                ))}
+              </div>
             </SummaryRow>
             <SummaryRow label="Posts selecionados">
               <div className="flex flex-wrap gap-1">
@@ -167,7 +182,7 @@ export function StepReview({ account, avatarId, onBack, onScheduled, state }: Pr
 
       <div className="wizard-footer">
         <Button disabled={submitting} onClick={onBack} variant="outline">Voltar</Button>
-        <Button disabled={submitting} onClick={() => void handleSubmit()}>
+        <Button disabled={submitting || selectedAccounts.length === 0} onClick={() => void handleSubmit()}>
           {submitting ? "Agendando..." : `Agendar ${items.length} post${items.length !== 1 ? "s" : ""}`}
         </Button>
       </div>

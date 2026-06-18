@@ -6,6 +6,8 @@ import {
 } from "../_shared/supabase.ts";
 import { resolveZernioProfileForAvatar, zernioRequest } from "../_shared/zernio.ts";
 
+const ALLOWED_PLATFORMS = new Set(["instagram", "youtube"]);
+
 Deno.serve(async (request) => {
   const options = handleOptions(request);
   if (options) return options;
@@ -13,7 +15,12 @@ Deno.serve(async (request) => {
   try {
     const user = await getAuthenticatedUser(request);
     const service = createServiceClient();
-    const { redirectUrl, avatarId } = await request.json().catch(() => ({}));
+    const { redirectUrl, avatarId, platform = "instagram" } = await request.json().catch(() => ({}));
+
+    if (!ALLOWED_PLATFORMS.has(platform)) {
+      throw new Error(`Unsupported platform: ${platform}`);
+    }
+
     const avatar = await resolveOwnedAvatar(service, user.id, avatarId);
     const profileId = await resolveZernioProfileForAvatar(service, avatar);
 
@@ -27,7 +34,7 @@ Deno.serve(async (request) => {
       url?: string;
       connectUrl?: string;
     }>(
-      `/connect/instagram?${params.toString()}`,
+      `/connect/${platform}?${params.toString()}`,
     );
     const url = response.authUrl ?? response.auth_url ?? response.url ?? response.connectUrl;
     if (!url) throw new Error("Zernio did not return a connect URL");

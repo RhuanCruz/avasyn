@@ -20,6 +20,9 @@ type ZernioAccount = {
   isActive?: boolean;
 };
 
+const ALL_PLATFORMS = ["instagram", "youtube"] as const;
+type SupportedPlatform = typeof ALL_PLATFORMS[number];
+
 Deno.serve(async (request) => {
   const options = handleOptions(request);
   if (options) return options;
@@ -31,48 +34,64 @@ Deno.serve(async (request) => {
     const avatar = await resolveOwnedAvatar(service, user.id, body.avatarId);
     const profileId = await resolveZernioProfileForAvatar(service, avatar);
 
-    const params = new URLSearchParams({
-      platform: "instagram",
-      profileId,
-    });
-    const response = await zernioRequest<{ accounts?: ZernioAccount[]; data?: ZernioAccount[] }>(
-      `/accounts?${params.toString()}`,
-    );
-    const accounts = response.accounts ?? response.data ?? [];
+    // Sync the requested platform(s). Default: both.
+    const requestedPlatform = body.platform as string | undefined;
+    const platforms: SupportedPlatform[] = requestedPlatform
+      ? ALL_PLATFORMS.filter((p) => p === requestedPlatform)
+      : [...ALL_PLATFORMS];
 
-    const rows = accounts
-      .filter((account) => {
-        const accountProfileId =
-          typeof account.profileId === "string"
-            ? account.profileId
-            : account.profileId?._id ?? account.profileId?.id;
-        return (
-          (account.platform ?? "instagram") === "instagram" &&
-          (!accountProfileId || accountProfileId === profileId)
-        );
-      })
-      .map((account) => ({
-        user_id: user.id,
-        avatar_id: avatar.id,
-        zernio_profile_id: profileId,
-        zernio_account_id: account._id ?? account.id ?? account.accountId,
-        platform: "instagram",
-        username: account.username ?? null,
-        display_name:
-          account.displayName ?? account.display_name ?? account.username ?? "Instagram",
-        profile_url: account.profileUrl ?? account.profile_url ?? null,
-        active: account.isActive ?? true,
-      }))
-      .filter((account) => account.zernio_account_id);
-
-    if (rows.length > 0) {
-      const { error } = await service
-        .from("social_accounts")
-        .upsert(rows, { onConflict: "user_id,avatar_id,zernio_account_id" });
-      if (error) throw error;
+    if (platforms.length === 0) {
+      throw new Error(`Unsupported platform: ${requestedPlatform}`);
     }
 
-    return jsonResponse({ count: rows.length });
+    let totalCount = 0;
+
+    for (const platform of platforms) {
+      const params = new URLSearchParams({ platform, profileId });
+      const response = await zernioRequest<{
+        accounts?: ZernioAccount[];
+        data?: ZernioAccount[];
+      }>(`/accounts?${params.toString()}`);
+
+      const accounts = response.accounts ?? response.data ?? [];
+      const platformLabel = platform === "youtube" ? "YouTube" : "Instagram";
+
+      const rows = accounts
+        .filter((account) => {
+          const accountProfileId =
+            typeof account.profileId === "string"
+              ? account.profileId
+              : account.profileId?._id ?? account.profileId?.id;
+          const accountPlatform = account.platform ?? platform;
+          return (
+            accountPlatform === platform &&
+            (!accountProfileId || accountProfileId === profileId)
+          );
+        })
+        .map((account) => ({
+          user_id: user.id,
+          avatar_id: avatar.id,
+          zernio_profile_id: profileId,
+          zernio_account_id: account._id ?? account.id ?? account.accountId,
+          platform,
+          username: account.username ?? null,
+          display_name:
+            account.displayName ?? account.display_name ?? account.username ?? platformLabel,
+          profile_url: account.profileUrl ?? account.profile_url ?? null,
+          active: account.isActive ?? true,
+        }))
+        .filter((account) => account.zernio_account_id);
+
+      if (rows.length > 0) {
+        const { error } = await service
+          .from("social_accounts")
+          .upsert(rows, { onConflict: "user_id,avatar_id,zernio_account_id" });
+        if (error) throw error;
+        totalCount += rows.length;
+      }
+    }
+
+    return jsonResponse({ count: totalCount });
   } catch (error) {
     return jsonResponse(
       { error: error instanceof Error ? error.message : "Unknown error" },

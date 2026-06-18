@@ -5,7 +5,7 @@ import { Icon } from "@/components/operator-ui";
 import { Button } from "@/components/ui/button";
 import { addMonths, monthLabel } from "@/lib/calendar-utils";
 import { invokeFunction } from "@/lib/api";
-import type { ReelJob, SocialAccount } from "@/lib/types";
+import type { ReelJob, SocialAccount, SocialPlatform } from "@/lib/types";
 import { CalendarAgendaList } from "./CalendarAgendaList";
 import { CalendarMonthGrid } from "./CalendarMonthGrid";
 import { PostDetailModal } from "./PostDetailModal";
@@ -13,6 +13,15 @@ import { RescheduleModal } from "./RescheduleModal";
 import { SchedulePostsWizard } from "./scheduler/SchedulePostsWizard";
 
 type ViewMode = "month" | "list";
+type PlatformFilter = "all" | SocialPlatform;
+
+const ALL_PLATFORMS: SocialPlatform[] = ["instagram", "youtube"];
+const PLATFORM_LABELS: Record<SocialPlatform, string> = {
+  instagram: "Instagram",
+  youtube: "YouTube",
+};
+
+type ConnectResponse = { url: string };
 
 type Props = {
   accounts: SocialAccount[];
@@ -21,20 +30,38 @@ type Props = {
   onRefresh: () => Promise<void>;
 };
 
+function getPostPlatforms(post: ReelJob, accounts: SocialAccount[]): SocialPlatform[] {
+  if (post.reel_job_targets && post.reel_job_targets.length > 0) {
+    return [...new Set(post.reel_job_targets.map((t) => t.platform))];
+  }
+  const account = accounts.find((a) => a.id === post.account_id);
+  return account ? [account.platform] : [];
+}
+
 export function PostCalendarView({ accounts, avatarId, posts, onRefresh }: Props) {
   const [cursor, setCursor] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
   const [mode, setMode] = useState<ViewMode>("month");
+  const [platformFilter, setPlatformFilter] = useState<PlatformFilter>("all");
   const [wizardOpen, setWizardOpen] = useState(false);
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
-  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
+  const [confirmDisconnectId, setConfirmDisconnectId] = useState<string | null>(null);
+  const [connectingPlatform, setConnectingPlatform] = useState<SocialPlatform | null>(null);
   const [selectedPost, setSelectedPost] = useState<ReelJob | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
+
+  const activeAccounts = accounts.filter((a) => a.active);
+  const connectedPlatforms = new Set(activeAccounts.map((a) => a.platform));
+  const missingPlatforms = ALL_PLATFORMS.filter((p) => !connectedPlatforms.has(p));
+
+  const filteredPosts = platformFilter === "all"
+    ? posts
+    : posts.filter((post) => getPostPlatforms(post, accounts).includes(platformFilter));
 
   function toggleSelect(id: string) {
     setSelectedIds((prev) => {
@@ -51,11 +78,11 @@ export function PostCalendarView({ accounts, avatarId, posts, onRefresh }: Props
   }
 
   function selectAll() {
-    setSelectedIds(new Set(posts.map((p) => p.id)));
+    setSelectedIds(new Set(filteredPosts.map((p) => p.id)));
   }
 
   function selectErrors() {
-    setSelectedIds(new Set(posts.filter((p) => p.status === "error").map((p) => p.id)));
+    setSelectedIds(new Set(filteredPosts.filter((p) => p.status === "error").map((p) => p.id)));
   }
 
   async function handleBulkDelete() {
@@ -75,33 +102,45 @@ export function PostCalendarView({ accounts, avatarId, posts, onRefresh }: Props
     }
   }
 
-  const errorCount = posts.filter((p) => p.status === "error").length;
+  async function handleConnect(platform: SocialPlatform) {
+    setConnectingPlatform(platform);
+    try {
+      const redirectUrl = `${window.location.origin}/avatars/${avatarId}?tab=calendario&connected=${platform}`;
+      const response = await invokeFunction<ConnectResponse>("zernio-connect-url", {
+        redirectUrl,
+        avatarId,
+        platform,
+      });
+      window.location.href = response.url;
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Falha ao iniciar conexão");
+      setConnectingPlatform(null);
+    }
+  }
 
+  async function handleDisconnect(accountId: string) {
+    setDisconnectingId(accountId);
+    try {
+      const account = accounts.find((a) => a.id === accountId);
+      await invokeFunction("disconnect-account", { accountId });
+      toast.success(`${account ? PLATFORM_LABELS[account.platform] : "Conta"} desconectada`);
+      setConfirmDisconnectId(null);
+      await onRefresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Falha ao desconectar");
+    } finally {
+      setDisconnectingId(null);
+    }
+  }
+
+  const errorCount = filteredPosts.filter((p) => p.status === "error").length;
   const reschedulableCount = posts.filter(
-    (p) =>
-      p.scheduled_post_at &&
-      ["pending", "rendered", "error", "processing"].includes(p.status)
+    (p) => p.scheduled_post_at && ["pending", "rendered", "error", "processing"].includes(p.status)
   ).length;
-
-  const activeAccount = accounts.find((a) => a.active) ?? null;
 
   async function handleScheduled() {
     setWizardOpen(false);
     await onRefresh();
-  }
-
-  async function handleDisconnect() {
-    if (!activeAccount) return;
-    setDisconnecting(true);
-    try {
-      await invokeFunction("disconnect-account", { accountId: activeAccount.id });
-      toast.success("Conta Instagram desconectada");
-      await onRefresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Falha ao desconectar");
-      setDisconnecting(false);
-      setConfirmDisconnect(false);
-    }
   }
 
   return (
@@ -126,6 +165,28 @@ export function PostCalendarView({ accounts, avatarId, posts, onRefresh }: Props
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Platform filter tabs */}
+          <div className="tabs" style={{ marginTop: 0 }}>
+            <button
+              className={`tab ${platformFilter === "all" ? "active" : ""}`}
+              onClick={() => setPlatformFilter("all")}
+              type="button"
+            >
+              Todas
+            </button>
+            {ALL_PLATFORMS.map((p) => (
+              <button
+                key={p}
+                className={`tab ${platformFilter === p ? "active" : ""}`}
+                onClick={() => setPlatformFilter(p)}
+                type="button"
+              >
+                <Icon name={p} size={12} style={{ marginRight: 4 }} />
+                {PLATFORM_LABELS[p]}
+              </button>
+            ))}
+          </div>
+
           <div className="tabs" style={{ marginTop: 0 }}>
             {(["month", "list"] as ViewMode[]).map((v) => (
               <button
@@ -139,48 +200,79 @@ export function PostCalendarView({ accounts, avatarId, posts, onRefresh }: Props
             ))}
           </div>
 
-          {activeAccount ? (
-            confirmDisconnect ? (
-              <div className="flex items-center gap-2">
-                <span className="text-xs muted">Desconectar @{activeAccount.username ?? activeAccount.display_name}?</span>
+          {activeAccounts.length > 0 && (
+            <Button onClick={() => setWizardOpen(true)} size="sm">
+              <Icon name="plus" size={14} style={{ marginRight: 4 }} />
+              Agendar posts
+            </Button>
+          )}
+          {reschedulableCount > 0 && (
+            <Button onClick={() => setRescheduleOpen(true)} size="sm" variant="outline">
+              Editar agenda
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Accounts bar: connected accounts + connect buttons for missing platforms */}
+      <div className="flex flex-wrap items-center gap-2" style={{ padding: "6px 0", borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
+        {activeAccounts.map((account) => (
+          <div key={account.id} className="flex items-center gap-1">
+            {confirmDisconnectId === account.id ? (
+              <>
+                <span className="text-xs muted">
+                  Desconectar @{account.username ?? account.display_name}?
+                </span>
                 <Button
-                  disabled={disconnecting}
-                  onClick={() => void handleDisconnect()}
+                  disabled={disconnectingId === account.id}
+                  onClick={() => void handleDisconnect(account.id)}
                   size="sm"
                   variant="outline"
                 >
-                  {disconnecting ? "..." : "Confirmar"}
+                  {disconnectingId === account.id ? "..." : "Confirmar"}
                 </Button>
                 <Button
-                  disabled={disconnecting}
-                  onClick={() => setConfirmDisconnect(false)}
+                  disabled={disconnectingId === account.id}
+                  onClick={() => setConfirmDisconnectId(null)}
                   size="sm"
                   variant="outline"
                 >
                   Cancelar
                 </Button>
-              </div>
+              </>
             ) : (
-              <div className="flex items-center gap-2">
-                <Button onClick={() => setWizardOpen(true)} size="sm">
-                  <Icon name="plus" size={14} style={{ marginRight: 4 }} />
-                  Agendar posts
-                </Button>
-                {reschedulableCount > 0 && (
-                  <Button onClick={() => setRescheduleOpen(true)} size="sm" variant="outline">
-                    Editar agenda
-                  </Button>
-                )}
-                <Button onClick={() => setConfirmDisconnect(true)} size="sm" variant="outline">
-                  Desconectar
-                </Button>
-              </div>
-            )
-          ) : null}
-        </div>
+              <button
+                className="flex items-center gap-1 text-xs"
+                onClick={() => setConfirmDisconnectId(account.id)}
+                style={{ background: "var(--surface-2)", borderRadius: 6, padding: "3px 8px", border: "1px solid var(--border)", cursor: "pointer" }}
+                title={`Desconectar ${PLATFORM_LABELS[account.platform]}`}
+                type="button"
+              >
+                <Icon name={account.platform} size={12} />
+                <span>{account.username ?? account.display_name}</span>
+                <Icon name="x" size={10} style={{ color: "var(--text-muted)", marginLeft: 2 }} />
+              </button>
+            )}
+          </div>
+        ))}
+
+        {missingPlatforms.map((platform) => (
+          <Button
+            disabled={connectingPlatform !== null}
+            key={platform}
+            onClick={() => void handleConnect(platform)}
+            size="sm"
+            variant="outline"
+          >
+            <Icon name={platform} size={12} style={{ marginRight: 4 }} />
+            {connectingPlatform === platform
+              ? "Redirecionando..."
+              : `+ ${PLATFORM_LABELS[platform]}`}
+          </Button>
+        ))}
       </div>
 
-      {mode === "list" && posts.length > 0 ? (
+      {mode === "list" && filteredPosts.length > 0 ? (
         <div className="agenda-toolbar">
           {selectMode ? (
             <>
@@ -216,20 +308,20 @@ export function PostCalendarView({ accounts, avatarId, posts, onRefresh }: Props
       ) : null}
 
       {mode === "month" ? (
-        <CalendarMonthGrid month={cursor} onSelect={setSelectedPost} posts={posts} />
+        <CalendarMonthGrid month={cursor} onSelect={setSelectedPost} posts={filteredPosts} />
       ) : (
         <CalendarAgendaList
           onSelect={setSelectedPost}
           onToggleSelect={toggleSelect}
-          posts={posts}
+          posts={filteredPosts}
           selectedIds={selectedIds}
           selectMode={selectMode}
         />
       )}
 
-      {wizardOpen && activeAccount ? (
+      {wizardOpen && activeAccounts.length > 0 ? (
         <SchedulePostsWizard
-          account={activeAccount}
+          accounts={activeAccounts}
           avatarId={avatarId}
           onClose={() => setWizardOpen(false)}
           onScheduled={() => void handleScheduled()}

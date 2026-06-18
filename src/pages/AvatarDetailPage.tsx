@@ -82,12 +82,16 @@ export function AvatarDetailPage() {
   }, [photoPreviewUrl]);
 
   useEffect(() => {
-    const connected = searchParams.get("connected");
+    const connected = searchParams.get("connected"); // platform name or any truthy value
     const accountId = searchParams.get("accountId");
     if (!avatarId || (!connected && !accountId)) return;
 
-    invokeFunction("zernio-sync-accounts", { avatarId })
-      .then(() => toast.success("Conta Instagram sincronizada"))
+    const platform = connected && ["instagram", "youtube"].includes(connected) ? connected : undefined;
+    const syncPayload = platform ? { avatarId, platform } : { avatarId };
+    const platformLabel = platform === "youtube" ? "YouTube" : "Instagram";
+
+    invokeFunction("zernio-sync-accounts", syncPayload)
+      .then(() => toast.success(`Conta ${platformLabel} sincronizada`))
       .catch((err: unknown) =>
         toast.error(err instanceof Error ? err.message : "Falha ao sincronizar"),
       )
@@ -288,7 +292,11 @@ export function AvatarDetailPage() {
                   {avatar ? <StatusPill kind="avatar" status={avatar.status} /> : null}
                   {snapshot.data.activeAccount ? (
                     <Pill tone="ok">
-                      <Icon name="instagram" size={12} style={{ marginRight: 4 }} />
+                      <Icon
+                        name={snapshot.data.activeAccount.platform ?? "instagram"}
+                        size={12}
+                        style={{ marginRight: 4 }}
+                      />
                       {snapshot.data.activeAccount.username ?? snapshot.data.activeAccount.display_name}
                     </Pill>
                   ) : null}

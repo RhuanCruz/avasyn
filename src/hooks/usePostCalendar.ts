@@ -28,7 +28,7 @@ export function usePostCalendar(avatarId: string | null) {
         .order("created_at", { ascending: false }),
       supabase
         .from("reel_jobs")
-        .select("*")
+        .select("*, reel_job_targets(*)")
         .eq("avatar_id", avatarId)
         .or("scheduled_post_at.not.is.null,posted_at.not.is.null")
         .order("scheduled_post_at", { ascending: true, nullsFirst: false }),

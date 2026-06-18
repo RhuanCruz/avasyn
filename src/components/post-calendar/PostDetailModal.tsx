@@ -6,7 +6,7 @@ import { StorageVideoPreview } from "@/components/VideoPreview";
 import { Button } from "@/components/ui/button";
 import { invokeFunction } from "@/lib/api";
 import { formatTime } from "@/lib/calendar-utils";
-import type { ReelJob } from "@/lib/types";
+import type { ReelJob, ReelJobTarget } from "@/lib/types";
 
 type Props = {
   post: ReelJob;
@@ -15,6 +15,11 @@ type Props = {
 };
 
 const CANCELLABLE = new Set(["pending", "rendered", "posting"]);
+
+const PLATFORM_LABELS: Record<string, string> = {
+  instagram: "Instagram",
+  youtube: "YouTube",
+};
 
 export function PostDetailModal({ post, onClose, onCancelled }: Props) {
   const [cancelling, setCancelling] = useState(false);
@@ -39,6 +44,13 @@ export function PostDetailModal({ post, onClose, onCancelled }: Props) {
       setConfirmCancel(false);
     }
   }
+
+  // Targets with platform post URLs
+  const targetsWithUrl: ReelJobTarget[] =
+    (post.reel_job_targets ?? []).filter((t) => t.platform_post_url);
+
+  // Fallback: single legacy URL
+  const legacyUrl = targetsWithUrl.length === 0 ? post.platform_post_url : null;
 
   return (
     <div
@@ -87,16 +99,32 @@ export function PostDetailModal({ post, onClose, onCancelled }: Props) {
             </div>
           ) : null}
 
-          {post.platform_post_url ? (
+          {/* Per-platform links */}
+          {targetsWithUrl.map((t) => (
+            <a
+              key={t.id}
+              className="flex items-center gap-2 text-sm"
+              href={t.platform_post_url!}
+              rel="noreferrer"
+              style={{ color: "var(--accent-hover)" }}
+              target="_blank"
+            >
+              <Icon name={t.platform} size={13} />
+              Ver post no {PLATFORM_LABELS[t.platform] ?? t.platform}
+            </a>
+          ))}
+
+          {/* Legacy single URL fallback */}
+          {legacyUrl ? (
             <a
               className="flex items-center gap-2 text-sm"
-              href={post.platform_post_url}
+              href={legacyUrl}
               rel="noreferrer"
               style={{ color: "var(--accent-hover)" }}
               target="_blank"
             >
               <Icon name="link" size={13} />
-              Ver post no Instagram
+              Ver post
             </a>
           ) : null}
 
@@ -114,7 +142,7 @@ export function PostDetailModal({ post, onClose, onCancelled }: Props) {
               <div className="col" style={{ gap: 8 }}>
                 {isPosting ? (
                   <p className="text-xs muted">
-                    Este post já foi enviado ao Zernio para agendamento. Cancelandoaqui ele será removido do banco mas pode ainda ser publicado pelo Zernio.
+                    Este post já foi enviado ao Zernio para agendamento. Cancelando aqui ele será removido do banco mas pode ainda ser publicado pelo Zernio.
                   </p>
                 ) : null}
                 <div className="flex gap-2">

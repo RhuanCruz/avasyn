@@ -17,7 +17,8 @@ type ScheduleItem =
 
 type ScheduleBody = {
   avatarId: string;
-  accountId: string;
+  accountId?: string;   // legacy single-account (kept for compat)
+  accountIds?: string[]; // new: one or more accounts to post to
   reactionIds?: string[];
   overlayPhrases?: string[];
   captions?: string[];
@@ -46,16 +47,25 @@ Deno.serve(async (request) => {
     if (!Array.isArray(weekdays) || weekdays.length === 0) throw new Error("schedule.weekdays is required");
     if (!Array.isArray(times) || times.length === 0) throw new Error("schedule.times is required");
 
-    // Validate account belongs to user + avatar
-    const { data: account, error: accountError } = await service
+    // Resolve account ids: new multi-account or legacy single
+    const rawAccountIds = body.accountIds ?? (body.accountId ? [body.accountId] : []);
+    if (rawAccountIds.length === 0) throw new Error("accountId or accountIds is required");
+
+    // Validate all accounts belong to user + avatar and are active
+    const { data: accountRows, error: accountError } = await service
       .from("social_accounts")
       .select("*")
-      .eq("id", body.accountId)
+      .in("id", rawAccountIds)
       .eq("user_id", user.id)
       .eq("avatar_id", avatar.id)
-      .eq("active", true)
-      .single();
-    if (accountError || !account) throw new Error("Invalid or inactive social account");
+      .eq("active", true);
+    if (accountError) throw accountError;
+    if (!accountRows || accountRows.length !== rawAccountIds.length) {
+      throw new Error("One or more accounts are invalid or inactive");
+    }
+
+    // Primary account (first in list) — kept in reel_jobs.account_id for compat
+    const account = accountRows[0];
 
     const rawItems = items.filter((item) => item.kind !== "rendered_job");
     const hasRaw = rawItems.length > 0;
@@ -66,12 +76,9 @@ Deno.serve(async (request) => {
 
     // A list is only needed as a fallback when some raw item leaves that field
     // blank (i.e. still relies on the random pick).
-    const needsOverlayList = rawItems.some(
-      (item) => !(item.kind !== "rendered_job" && item.overlayText?.trim()),
-    );
-    const needsCaptionList = rawItems.some(
-      (item) => !(item.kind !== "rendered_job" && item.caption?.trim()),
-    );
+    // rawItems is already filtered to non-rendered_job items
+    const needsOverlayList = rawItems.some((item) => !item.overlayText?.trim());
+    const needsCaptionList = rawItems.some((item) => !item.caption?.trim());
 
     if (hasRaw) {
       if (reactionIds.length === 0) throw new Error("reactionIds is required for library/url items");
@@ -159,6 +166,20 @@ Deno.serve(async (request) => {
         .eq("id", jobId);
       if (updateError) throw updateError;
 
+      // Create targets for all selected accounts (multi-platform fan-out)
+      if (accountRows.length > 1) {
+        const targetRows = accountRows.map((acc: { id: string; platform: string }) => ({
+          job_id: jobId,
+          account_id: acc.id,
+          platform: acc.platform,
+          status: "scheduled",
+        }));
+        const { error: targetError } = await service
+          .from("reel_job_targets")
+          .upsert(targetRows, { onConflict: "job_id,account_id" });
+        if (targetError) throw targetError;
+      }
+
       scheduledJobIds.push(jobId);
     }
 
@@ -171,6 +192,20 @@ Deno.serve(async (request) => {
       if (insertError) throw insertError;
 
       for (const job of jobs ?? []) {
+        // Create targets for all selected accounts
+        if (accountRows.length > 1) {
+          const targetRows = accountRows.map((acc: { id: string; platform: string }) => ({
+            job_id: job.id,
+            account_id: acc.id,
+            platform: acc.platform,
+            status: "scheduled",
+          }));
+          const { error: targetError } = await service
+            .from("reel_job_targets")
+            .upsert(targetRows, { onConflict: "job_id,account_id" });
+          if (targetError) throw targetError;
+        }
+
         const { error: enqueueError } = await service.rpc("enqueue_reel_job", {
           job_id: job.id,
         });
