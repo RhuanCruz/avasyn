@@ -18,3 +18,11 @@ enable_confirmations = false
 
 [storage]
 enabled = true
+
+# External webhooks are called without a Supabase JWT (they authenticate via
+# their own secret/signature), so JWT verification must be disabled for them.
+[functions.zernio-webhook]
+verify_jwt = false
+
+[functions.heygen-webhook]
+verify_jwt = false

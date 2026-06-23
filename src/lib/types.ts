@@ -177,20 +177,119 @@ export type SocialAccount = {
   created_at: string;
 };
 
+export type AutomationStatus = "draft" | "active" | "paused" | "error";
+export type AutomationTextMode = "fixed" | "ideas" | "ai";
+export type AutomationOverlayMode = "none" | "fixed" | "ideas" | "ai";
+export type AutomationApprovalMode = "auto" | "review";
+export type AutomationRunStatus =
+  | "pending"
+  | "searching"
+  | "reserved"
+  | "job_created"
+  | "no_candidate"
+  | "error";
+export type ContentUsageStatus =
+  | "reserved"
+  | "job_created"
+  | "rendered"
+  | "posted"
+  | "failed";
+export type AutomationCandidateStatus =
+  | "found"
+  | "skipped_used"
+  | "skipped_filter"
+  | "reserved"
+  | "failed";
+
 export type Automation = {
   id: string;
   user_id: string;
   avatar_id: string;
-  account_id: string;
+  account_id: string | null;
+  account_ids: string[];
+  name: string;
+  status: AutomationStatus;
+  source_platforms: string[];
+  search_queries: string[];
+  days_of_week: number[];
+  timezone: string;
+  overlay_mode: AutomationOverlayMode;
+  overlay_text: string;
+  overlay_ideas: string[];
+  overlay_ai_instructions: string;
+  caption_mode: AutomationTextMode;
+  caption_template: string;
+  caption_ideas: string[];
+  caption_ai_instructions: string;
+  approval_mode: AutomationApprovalMode;
+  min_view_count: number;
+  max_duration_s: number;
+  recent_days: number;
   posts_per_day: number;
   post_times: string[];
   reaction_pool: string[];
-  clip_urls: string[];
-  caption_template: string;
-  overlay_text: string;
   share_to_feed: boolean;
   active: boolean;
+  last_run_at: string | null;
+  last_error_message: string | null;
+  // Legacy column kept for backward compatibility.
+  clip_urls: string[];
+  updated_at: string;
   created_at: string;
+};
+
+export type AutomationRun = {
+  id: string;
+  user_id: string;
+  avatar_id: string;
+  automation_id: string;
+  scheduled_slot_at: string;
+  status: AutomationRunStatus;
+  query: string | null;
+  source_platform: string | null;
+  candidate_url: string | null;
+  content_usage_id: string | null;
+  reel_job_id: string | null;
+  error_message: string | null;
+  started_at: string;
+  completed_at: string | null;
+};
+
+export type AutomationCandidate = {
+  id: string;
+  user_id: string;
+  avatar_id: string;
+  automation_id: string;
+  run_id: string | null;
+  source_platform: string;
+  source_external_id: string | null;
+  source_url: string;
+  canonical_url: string;
+  title: string | null;
+  thumbnail_url: string | null;
+  duration_s: number | null;
+  view_count: number | null;
+  published_at: string | null;
+  status: AutomationCandidateStatus;
+  skip_reason: string | null;
+  raw: Record<string, unknown>;
+  created_at: string;
+};
+
+export type ContentUsage = {
+  id: string;
+  user_id: string;
+  avatar_id: string;
+  automation_id: string | null;
+  source_platform: string;
+  source_external_id: string | null;
+  canonical_url: string;
+  source_url: string;
+  source_video_id: string | null;
+  reel_job_id: string | null;
+  status: ContentUsageStatus;
+  used_at: string;
+  error_message: string | null;
 };
 
 export type ReelJob = {

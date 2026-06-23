@@ -19,6 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAvatarState } from "@/hooks/useAvatarState";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { PostCalendarTab } from "@/components/post-calendar/PostCalendarTab";
+import { AutomacoesTab } from "@/components/automations/AutomacoesTab";
 import { createAvatarPhotoUrl, removeAvatarPhoto, uploadAvatarPhoto } from "@/lib/avatar-photo";
 import { slugifyAvatarName } from "@/lib/avatar-utils";
 import { invokeFunction } from "@/lib/api";
@@ -44,7 +45,7 @@ type AvatarSnapshot = {
   activeAccount: SocialAccount | null;
 };
 
-type HubTab = "overview" | "biblioteca" | "sobre" | "calendario";
+type HubTab = "overview" | "biblioteca" | "sobre" | "calendario" | "automacoes";
 
 export function AvatarDetailPage() {
   const params = useParams<{ avatarId: string }>();
@@ -353,6 +354,7 @@ export function AvatarDetailPage() {
             ["overview", "Visao geral"],
             ["biblioteca", "Biblioteca"],
             ["calendario", "Calendário de Posts"],
+            ["automacoes", "Automações"],
             ["sobre", "Sobre"],
           ].map(([value, label]) => (
             <button
@@ -497,6 +499,10 @@ export function AvatarDetailPage() {
 
         {tab === "calendario" && avatarId ? (
           <PostCalendarTab avatarId={avatarId} />
+        ) : null}
+
+        {tab === "automacoes" && avatarId ? (
+          <AutomacoesTab avatarId={avatarId} />
         ) : null}
       </div>
     </>
