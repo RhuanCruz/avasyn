@@ -374,3 +374,38 @@ export type ContentSearchProviderStatus = {
 };
 
 export type ContentSearchPageTokens = Partial<Record<ContentSearchPlatform, string>>;
+
+export type TrendWatch = {
+  id: string;
+  user_id: string;
+  avatar_id: string;
+  theme: string;
+  platforms: ContentSearchPlatform[];
+  active: boolean;
+  last_refreshed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TrendVideo = {
+  id: string;
+  user_id: string;
+  avatar_id: string;
+  trend_watch_id: string;
+  platform: ContentSearchPlatform;
+  external_id: string | null;
+  canonical_url: string;
+  source_url: string;
+  title: string | null;
+  thumbnail_url: string | null;
+  duration_s: number | null;
+  view_count: number | null;
+  like_count: number | null;
+  author_username: string | null;
+  published_at: string | null;
+  is_trending: boolean;
+  trend_score: number;
+  raw: Record<string, unknown>;
+  fetched_at: string;
+  expires_at: string;
+};

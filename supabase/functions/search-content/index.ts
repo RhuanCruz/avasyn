@@ -13,6 +13,10 @@ import {
   type ProviderResult,
 } from "../_shared/content-search.ts";
 import {
+  fetchScrapeCreatorsSearch,
+  hasScrapeCreatorsKey,
+} from "../_shared/scrapecreators.ts";
+import {
   buildTikTokSearchInput,
   normalizeApifyTikTokSearchItem,
   runApifyActorDataset,
@@ -114,7 +118,7 @@ Deno.serve(async (request) => {
         }
         providerStatuses.push({
           platform,
-          status: platform === "instagram" ? "unavailable" : "ok",
+          status: platform === "instagram" && !hasScrapeCreatorsKey() ? "unavailable" : "ok",
           count: providerResult.results.length,
         });
       } catch (error) {
@@ -342,6 +346,11 @@ async function fetchProviderResults(
     recentDays: number | null;
   } = { order: "relevance", recentDays: null },
 ): Promise<ProviderResult> {
+  // ScrapeCreators is the primary engine for all three networks when its key is
+  // set. YouTube Data API / Apify remain as fallback when the key is missing.
+  if (hasScrapeCreatorsKey()) {
+    return fetchScrapeCreatorsSearch(platform, query, limit, pageToken);
+  }
   if (platform === "youtube") return fetchYouTubeResults(query, limit, pageToken, options);
   if (platform === "tiktok") return fetchTikTokResults(query, limit);
   return { results: [], nextPageToken: null };
@@ -453,12 +462,14 @@ function extractTikTokExternalId(url: string) {
 }
 
 function isUnavailableProviderError(platform: Platform, message: string) {
-  if (platform === "instagram") return true;
+  if (platform === "instagram" && !hasScrapeCreatorsKey()) return true;
   return platform === "tiktok" && /tiktoksearch|Unsupported url scheme/i.test(message);
 }
 
 function normalizeProviderError(platform: Platform, message: string) {
-  if (platform === "instagram") return "Busca por Instagram ainda não está disponível nesta versão.";
+  if (platform === "instagram" && !hasScrapeCreatorsKey()) {
+    return "Busca por Instagram ainda não está disponível nesta versão.";
+  }
   if (platform === "tiktok" && /tiktoksearch|Unsupported url scheme/i.test(message)) {
     return "Busca por TikTok indisponível no worker atual.";
   }

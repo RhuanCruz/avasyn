@@ -27,6 +27,7 @@ type Props = {
   accounts: SocialAccount[];
   reactions: ReactionVideo[];
   existing: Automation | null;
+  initialTheme?: string | null;
   onClose: () => void;
   onSave: (row: AutomationRow, activate: boolean) => Promise<void>;
   onReactionsRefresh?: () => void | Promise<void>;
@@ -44,10 +45,13 @@ const STEP_LABELS: Record<Step, string> = {
 
 const FOOTER_STYLE: React.CSSProperties = { padding: "16px 20px 20px" };
 
-export function AutomationWizard({ accounts, reactions, existing, onClose, onSave, onReactionsRefresh }: Props) {
-  const [draft, setDraft] = useState<AutomationDraft>(
-    existing ? draftFromAutomation(existing) : emptyDraft(),
-  );
+export function AutomationWizard({ accounts, reactions, existing, initialTheme, onClose, onSave, onReactionsRefresh }: Props) {
+  const [draft, setDraft] = useState<AutomationDraft>(() => {
+    if (existing) return draftFromAutomation(existing);
+    const base = emptyDraft();
+    const theme = initialTheme?.trim();
+    return theme ? { ...base, search_queries: [theme] } : base;
+  });
   const [step, setStep] = useState<Step>("tema");
   const [saving, setSaving] = useState(false);
   const [positioning, setPositioning] = useState<ReactionVideo | null>(null);

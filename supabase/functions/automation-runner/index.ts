@@ -5,7 +5,12 @@ import {
   canonicalizeContentUrl,
   fetchYouTubeResults,
   type NormalizedResult,
+  type Platform,
 } from "../_shared/content-search.ts";
+import {
+  fetchScrapeCreatorsSearch,
+  hasScrapeCreatorsKey,
+} from "../_shared/scrapecreators.ts";
 
 declare const EdgeRuntime: { waitUntil: (promise: Promise<unknown>) => void };
 
@@ -353,24 +358,52 @@ async function logCandidate(
 
 // --- Search -----------------------------------------------------------------
 
+const ALL_PLATFORMS: Platform[] = ["youtube", "tiktok", "instagram"];
+
+function automationPlatforms(automation: Automation): Platform[] {
+  const requested = (automation.source_platforms ?? []).filter((p): p is Platform =>
+    ALL_PLATFORMS.includes(p as Platform)
+  );
+  return requested.length > 0 ? requested : ["youtube"];
+}
+
 async function searchCandidates(
   automation: Automation,
   queryText: string,
 ): Promise<NormalizedResult[]> {
-  // v1: YouTube Shorts only. First by date, fall back to relevance for breadth.
-  const byDate = await fetchYouTubeResults(queryText, SEARCH_LIMIT, undefined, {
-    order: "date",
-    recentDays: automation.recent_days || null,
-  });
-  let pool = byDate.results;
-  if (pool.length < 5) {
-    const byRelevance = await fetchYouTubeResults(queryText, SEARCH_LIMIT, undefined, {
-      order: "relevance",
-      recentDays: null,
+  let pool: NormalizedResult[];
+
+  if (hasScrapeCreatorsKey()) {
+    // ScrapeCreators powers all requested networks. Gather per platform and merge.
+    const platforms = automationPlatforms(automation);
+    const perPlatform = await Promise.all(
+      platforms.map(async (platform) => {
+        try {
+          const result = await fetchScrapeCreatorsSearch(platform, queryText, SEARCH_LIMIT);
+          return result.results;
+        } catch (_error) {
+          return [] as NormalizedResult[];
+        }
+      }),
+    );
+    pool = perPlatform.flat();
+  } else {
+    // Fallback: YouTube Data API only. First by date, fall back to relevance for breadth.
+    const byDate = await fetchYouTubeResults(queryText, SEARCH_LIMIT, undefined, {
+      order: "date",
+      recentDays: automation.recent_days || null,
     });
-    const seen = new Set(pool.map((r) => r.externalId));
-    pool = pool.concat(byRelevance.results.filter((r) => !seen.has(r.externalId)));
+    pool = byDate.results;
+    if (pool.length < 5) {
+      const byRelevance = await fetchYouTubeResults(queryText, SEARCH_LIMIT, undefined, {
+        order: "relevance",
+        recentDays: null,
+      });
+      const seen = new Set(pool.map((r) => r.externalId));
+      pool = pool.concat(byRelevance.results.filter((r) => !seen.has(r.externalId)));
+    }
   }
+
   return pool.sort((a, b) => {
     const va = a.viewCount ?? 0;
     const vb = b.viewCount ?? 0;

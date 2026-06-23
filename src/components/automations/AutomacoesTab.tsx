@@ -18,6 +18,8 @@ import { activationBlockers, type AutomationRow, draftFromAutomation } from "./t
 
 type Props = {
   avatarId: string;
+  initialTheme?: string | null;
+  onInitialThemeConsumed?: () => void;
 };
 
 type Snapshot = {
@@ -29,9 +31,10 @@ type Snapshot = {
 
 const EMPTY: Snapshot = { automations: [], reactions: [], accounts: [], jobsToday: [] };
 
-export function AutomacoesTab({ avatarId }: Props) {
+export function AutomacoesTab({ avatarId, initialTheme, onInitialThemeConsumed }: Props) {
   const { user } = useAuth();
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardTheme, setWizardTheme] = useState<string | null>(null);
   const [editing, setEditing] = useState<Automation | null>(null);
   const [detail, setDetail] = useState<Automation | null>(null);
   const [postsFor, setPostsFor] = useState<Automation | null>(null);
@@ -71,6 +74,17 @@ export function AutomacoesTab({ avatarId }: Props) {
       void supabase.removeChannel(channel);
     };
   }, [avatarId, refresh]);
+
+  // Open the wizard pre-filled when a theme is handed off from the Trends tab.
+  useEffect(() => {
+    const theme = initialTheme?.trim();
+    if (!theme) return;
+    setEditing(null);
+    setWizardTheme(theme);
+    setWizardOpen(true);
+    onInitialThemeConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTheme]);
 
   const postsTodayMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -201,11 +215,13 @@ export function AutomacoesTab({ avatarId }: Props) {
 
   function openNew() {
     setEditing(null);
+    setWizardTheme(null);
     setWizardOpen(true);
   }
 
   function openEdit(automation: Automation) {
     setEditing(automation);
+    setWizardTheme(null);
     setWizardOpen(true);
   }
 
@@ -274,9 +290,11 @@ export function AutomacoesTab({ avatarId }: Props) {
         <AutomationWizard
           accounts={data.accounts}
           existing={editing}
+          initialTheme={wizardTheme}
           onClose={() => {
             setWizardOpen(false);
             setEditing(null);
+            setWizardTheme(null);
           }}
           onReactionsRefresh={refresh}
           onSave={handleSave}

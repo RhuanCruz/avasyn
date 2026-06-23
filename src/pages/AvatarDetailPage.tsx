@@ -20,6 +20,7 @@ import { useAvatarState } from "@/hooks/useAvatarState";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { PostCalendarTab } from "@/components/post-calendar/PostCalendarTab";
 import { AutomacoesTab } from "@/components/automations/AutomacoesTab";
+import { TrendsTab } from "@/components/trends/TrendsTab";
 import { createAvatarPhotoUrl, removeAvatarPhoto, uploadAvatarPhoto } from "@/lib/avatar-photo";
 import { slugifyAvatarName } from "@/lib/avatar-utils";
 import { invokeFunction } from "@/lib/api";
@@ -45,7 +46,7 @@ type AvatarSnapshot = {
   activeAccount: SocialAccount | null;
 };
 
-type HubTab = "overview" | "biblioteca" | "sobre" | "calendario" | "automacoes";
+type HubTab = "overview" | "biblioteca" | "sobre" | "calendario" | "automacoes" | "trends";
 
 export function AvatarDetailPage() {
   const params = useParams<{ avatarId: string }>();
@@ -60,9 +61,16 @@ export function AvatarDetailPage() {
   } = useAvatarState(avatarId);
   const [tab, setTab] = useState<HubTab>(() => {
     const t = searchParams.get("tab");
-    if (t === "calendario" || t === "overview" || t === "biblioteca" || t === "sobre") return t;
+    if (
+      t === "calendario" || t === "overview" || t === "biblioteca" ||
+      t === "sobre" || t === "automacoes" || t === "trends"
+    ) {
+      return t;
+    }
     return "overview";
   });
+  // Theme handed off from the Trends tab to pre-fill a new automation.
+  const [pendingAutomationTheme, setPendingAutomationTheme] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [form, setForm] = useState({
@@ -354,6 +362,7 @@ export function AvatarDetailPage() {
             ["overview", "Visao geral"],
             ["biblioteca", "Biblioteca"],
             ["calendario", "Calendário de Posts"],
+            ["trends", "Trends"],
             ["automacoes", "Automações"],
             ["sobre", "Sobre"],
           ].map(([value, label]) => (
@@ -501,8 +510,22 @@ export function AvatarDetailPage() {
           <PostCalendarTab avatarId={avatarId} />
         ) : null}
 
+        {tab === "trends" && avatarId ? (
+          <TrendsTab
+            avatarId={avatarId}
+            onCreateAutomation={(theme) => {
+              setPendingAutomationTheme(theme);
+              setTab("automacoes");
+            }}
+          />
+        ) : null}
+
         {tab === "automacoes" && avatarId ? (
-          <AutomacoesTab avatarId={avatarId} />
+          <AutomacoesTab
+            avatarId={avatarId}
+            initialTheme={pendingAutomationTheme}
+            onInitialThemeConsumed={() => setPendingAutomationTheme(null)}
+          />
         ) : null}
       </div>
     </>

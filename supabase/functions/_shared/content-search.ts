@@ -122,6 +122,10 @@ export function canonicalizeContentUrl(
   if (tiktokMatch) {
     return { platform: "tiktok", externalId: tiktokMatch[1], canonicalUrl: `tiktok:${tiktokMatch[1]}` };
   }
+  const instagramMatch = trimmed.match(/instagram\.com\/(?:reels?|p|tv)\/([\w-]+)/i);
+  if (instagramMatch) {
+    return { platform: "instagram", externalId: instagramMatch[1], canonicalUrl: `instagram:${instagramMatch[1]}` };
+  }
   // Fallback: clean URL without querystring/hash.
   const clean = trimmed.split(/[?#]/)[0].replace(/\/$/, "");
   return { platform: null, externalId: null, canonicalUrl: clean || trimmed };
@@ -161,7 +165,7 @@ export function parseIsoDuration(value: unknown) {
   return hours * 3600 + minutes * 60 + seconds;
 }
 
-function bestThumbnail(thumbnails: unknown) {
+export function bestThumbnail(thumbnails: unknown) {
   if (!thumbnails || typeof thumbnails !== "object") return null;
   const record = thumbnails as Record<string, { url?: unknown }>;
   for (const key of ["maxres", "standard", "high", "medium", "default"]) {
@@ -171,7 +175,7 @@ function bestThumbnail(thumbnails: unknown) {
   return null;
 }
 
-function firstString(...values: unknown[]) {
+export function firstString(...values: unknown[]) {
   for (const value of values) {
     if (typeof value === "string" && value.trim()) return value.trim();
   }
@@ -184,12 +188,12 @@ export function nullableInteger(value: unknown) {
   return Math.trunc(number);
 }
 
-function getNestedString(value: unknown, path: string[]) {
+export function getNestedString(value: unknown, path: string[]) {
   const nested = getNestedValue(value, path);
   return typeof nested === "string" && nested.trim() ? nested.trim() : null;
 }
 
-function getNestedValue(value: unknown, path: string[]) {
+export function getNestedValue(value: unknown, path: string[]) {
   let current = value;
   for (const key of path) {
     if (!isRecord(current)) return null;
