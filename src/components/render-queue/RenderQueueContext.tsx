@@ -18,6 +18,8 @@ export type RenderItem = {
   status: RenderItemStatus;
   errorMessage: string | null;
   outputPath: string | null;
+  caption: string | null;
+  platformPostUrl: string | null;
   createdAt: number;
 };
 
@@ -86,7 +88,7 @@ export function RenderQueueProvider({ children }: { children: ReactNode }) {
     const sinceIso = new Date(Date.now() - RECENT_WINDOW_MS).toISOString();
     const { data, error } = await supabase
       .from("reel_jobs")
-      .select("id, status, error_message, output_path, created_at, clip_url, source_video:source_videos(name)")
+      .select("id, status, error_message, output_path, caption, platform_post_url, created_at, clip_url, source_video:source_videos(name)")
       .eq("user_id", user.id)
       .gte("created_at", sinceIso)
       .order("created_at", { ascending: false })
@@ -97,6 +99,8 @@ export function RenderQueueProvider({ children }: { children: ReactNode }) {
       status: JobStatus;
       error_message: string | null;
       output_path: string | null;
+      caption: string | null;
+      platform_post_url: string | null;
       created_at: string;
       clip_url: string | null;
       source_video: { name: string | null } | { name: string | null }[] | null;
@@ -112,6 +116,8 @@ export function RenderQueueProvider({ children }: { children: ReactNode }) {
           status: row.status,
           errorMessage: row.error_message,
           outputPath: row.output_path,
+          caption: row.caption,
+          platformPostUrl: row.platform_post_url,
           createdAt: Date.parse(row.created_at),
         };
       }),
@@ -189,6 +195,8 @@ export function RenderQueueProvider({ children }: { children: ReactNode }) {
         status: local.status,
         errorMessage: local.errorMessage,
         outputPath: null,
+        caption: null,
+        platformPostUrl: null,
         createdAt: local.createdAt,
       }));
 
