@@ -152,6 +152,12 @@ exception when duplicate_object then null;
 end $$;
 
 -- 1e. Cron: replace the legacy hourly scheduler with a 5-minute runner ---------
+-- NOTE: this project's `postgres` role cannot ALTER DATABASE SET custom GUCs, so
+-- `current_setting('app.settings.*')` is unavailable. We hardcode the public
+-- functions URL and use the **public anon key** as the verify_jwt bearer (the
+-- function uses its own SUPABASE_SERVICE_ROLE_KEY env for DB writes; the bearer
+-- is only the JWT gate). The anon key is public (shipped in the frontend), so
+-- it is safe to commit. Update both values if the project changes.
 
 do $$
 begin
@@ -162,16 +168,16 @@ end $$;
 select cron.schedule(
   'avasyn-automation-runner',
   '*/5 * * * *',
-  $$
+  $cron$
   select net.http_post(
-    url := current_setting('app.settings.supabase_url') || '/functions/v1/automation-runner',
+    url := 'https://noswvobckrcctffbbuve.supabase.co/functions/v1/automation-runner',
     headers := jsonb_build_object(
-      'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key'),
+      'Authorization', 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5vc3d2b2Jja3JjY3RmZmJidXZlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE5NDQ0ODEsImV4cCI6MjA5NzUyMDQ4MX0.HkUWIjJ2nfRl_5CCCIUlxV9YmHQE1Lkg6njFydjI-3o',
       'Content-Type', 'application/json'
     ),
     body := '{}'::jsonb
   );
-  $$
+  $cron$
 )
 where not exists (
   select 1 from cron.job where jobname = 'avasyn-automation-runner'
