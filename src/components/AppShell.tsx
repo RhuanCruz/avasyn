@@ -1,6 +1,7 @@
 import { Outlet } from "react-router-dom";
 
 import { AppSidebar } from "@/components/operator-ui";
+import { RenderQueueLauncher } from "@/components/render-queue/RenderQueueSheet";
 import { useAvatarState } from "@/hooks/useAvatarState";
 
 export function AppShell() {
@@ -16,6 +17,7 @@ export function AppShell() {
       <main className="main">
         <Outlet />
       </main>
+      <RenderQueueLauncher />
     </div>
   );
 }

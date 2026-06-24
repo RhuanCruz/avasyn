@@ -6,6 +6,7 @@ import { Toaster } from "sonner";
 import { AuthProvider } from "@/auth/AuthContext";
 import { ProtectedRoute } from "@/auth/ProtectedRoute";
 import { AppShell } from "@/components/AppShell";
+import { RenderQueueProvider } from "@/components/render-queue/RenderQueueContext";
 import { AvatarDetailPage } from "@/pages/AvatarDetailPage";
 import { AvatarsPage } from "@/pages/AvatarsPage";
 import { BulkEditorPage } from "@/pages/BulkEditorPage";
@@ -40,7 +41,9 @@ const router = createBrowserRouter([
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <AuthProvider>
-      <RouterProvider router={router} />
+      <RenderQueueProvider>
+        <RouterProvider router={router} />
+      </RenderQueueProvider>
       <Toaster richColors />
     </AuthProvider>
   </StrictMode>,

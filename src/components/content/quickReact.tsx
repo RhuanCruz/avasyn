@@ -8,6 +8,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 
 import { Icon, Pill } from "@/components/operator-ui";
+import { useRenderQueue } from "@/components/render-queue/RenderQueueContext";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { invokeFunction } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
@@ -52,6 +53,7 @@ export function useQuickReact(avatarId: string | null) {
   const [quickConfig, setQuickConfig] = useState<QuickReactConfig | null>(null);
   const [savingResultIds, setSavingResultIds] = useState<string[]>([]);
   const [quickGeneratingIds, setQuickGeneratingIds] = useState<string[]>([]);
+  const renderQueue = useRenderQueue();
 
   const reload = useCallback(async () => {
     if (!avatarId) {
@@ -133,8 +135,12 @@ export function useQuickReact(avatarId: string | null) {
   ) => {
     if (!avatarId || quickGeneratingIds.includes(trackId)) return;
     setQuickGeneratingIds((current) => [...current, trackId]);
+    const render = renderQueue.startItem({
+      title: source.title ?? source.result_url,
+      thumbnailUrl: source.thumbnail_url,
+    });
     try {
-      toast.info("Enviando react para renderização...");
+      render.setDownloading();
       const sourceVideo = await ensureSourceVideo(source);
       const response = await invokeFunction<QuickReactJobResponse>("create-quick-react-job", {
         avatarId,
@@ -143,14 +149,16 @@ export function useQuickReact(avatarId: string | null) {
         overlayText: config.overlayText,
         caption: config.caption,
       });
-      toast.success("Job de react enviado para renderização");
+      render.attachJob(response.job.id);
       console.info("Quick react job created", response.job.id);
     } catch (error) {
-      toast.error(formatMediaImportError(error instanceof Error ? error.message : null));
+      const message = formatMediaImportError(error instanceof Error ? error.message : null);
+      render.fail(message);
+      toast.error(message);
     } finally {
       setQuickGeneratingIds((current) => current.filter((id) => id !== trackId));
     }
-  }, [avatarId, ensureSourceVideo, quickGeneratingIds]);
+  }, [avatarId, ensureSourceVideo, quickGeneratingIds, renderQueue]);
 
   return {
     reactions,

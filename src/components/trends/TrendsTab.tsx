@@ -37,7 +37,7 @@ export function TrendsTab({ avatarId, onCreateAutomation }: Props) {
   const [platformFilter, setPlatformFilter] = useState<PlatformFilter>("all");
   const [modeFilter, setModeFilter] = useState<ModeFilter>("all");
   const [preview, setPreview] = useState<TrendVideo | null>(null);
-  const [quickFor, setQuickFor] = useState<TrendVideo | null>(null);
+  const [quickFor, setQuickFor] = useState<{ video: TrendVideo | null } | null>(null);
 
   const {
     reactions,
@@ -157,7 +157,7 @@ export function TrendsTab({ avatarId, onCreateAutomation }: Props) {
     const reactionMissing =
       quickConfig && reactions.length > 0 && !reactions.some((r) => r.id === quickConfig.reactionId);
     if (!quickConfig || reactionMissing) {
-      setQuickFor(video);
+      setQuickFor({ video });
       return;
     }
     void createQuickJob(trendToSource(video), quickConfig, video.id);
@@ -185,10 +185,23 @@ export function TrendsTab({ avatarId, onCreateAutomation }: Props) {
         <p className="text-sm muted">
           Observe temas e veja o que está em alta no YouTube, TikTok e Instagram.
         </p>
-        <Button disabled={refreshing} onClick={() => void handleRefresh()} size="sm">
-          <Icon name="refresh" size={14} style={{ marginRight: 4 }} />
-          {refreshing ? "Atualizando..." : "Atualizar"}
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            onClick={() => setQuickFor({ video: null })}
+            size="sm"
+            title="Configurar reaction rápida"
+            variant="outline"
+          >
+            <Icon name="settings" />
+            <span className="hidden sm:inline">
+              {quickConfig ? "Reaction rápida" : "Configurar reaction"}
+            </span>
+          </Button>
+          <Button disabled={refreshing} onClick={() => void handleRefresh()} size="sm">
+            <Icon name="refresh" size={14} style={{ marginRight: 4 }} />
+            {refreshing ? "Atualizando..." : "Atualizar"}
+          </Button>
+        </div>
       </div>
 
       <div className="card card-pad" style={{ padding: 12 }}>
@@ -278,13 +291,17 @@ export function TrendsTab({ avatarId, onCreateAutomation }: Props) {
           onConfigured={(config) => {
             persistQuickConfig(avatarId, config);
             setQuickConfig(config);
-            const pending = quickFor;
+            const pending = quickFor.video;
             setQuickFor(null);
-            if (pending) void createQuickJob(trendToSource(pending), config, pending.id);
+            if (pending) {
+              void createQuickJob(trendToSource(pending), config, pending.id);
+            } else {
+              toast.success("Reaction rápida configurada");
+            }
           }}
           reactions={reactions}
           savedConfig={quickConfig}
-          source={trendToSource(quickFor)}
+          source={quickFor.video ? trendToSource(quickFor.video) : null}
         />
       ) : null}
     </div>
