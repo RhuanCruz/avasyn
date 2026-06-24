@@ -372,7 +372,7 @@ function QuickReactionSplitPreview({
 
       <div style={{ height: `${100 - REACTION_SPLIT_PERCENT}%`, overflow: "hidden", position: "relative", width: "100%" }}>
         {source?.thumbnail_url ? (
-          <img alt={source.title ?? "Vídeo base"} src={source.thumbnail_url}
+          <img alt="" referrerPolicy="no-referrer" src={source.thumbnail_url}
             style={{ height: "100%", objectFit: "cover", width: "100%" }} />
         ) : (
           <div className="empty h-full">

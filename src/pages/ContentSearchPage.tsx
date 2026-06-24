@@ -379,6 +379,8 @@ function ContentResultCard({
   saved: boolean;
   saving: boolean;
 }) {
+  const [imgError, setImgError] = useState(false);
+  const showThumb = result.thumbnail_url && !imgError;
   return (
     <article className="card card-pad">
       <button
@@ -394,12 +396,14 @@ function ContentResultCard({
         }}
         type="button"
       >
-        {result.thumbnail_url ? (
+        {showThumb ? (
           <img
-            alt={result.title ?? "Resultado de busca"}
+            alt=""
             className="h-full w-full object-cover"
             loading="lazy"
-            src={result.thumbnail_url}
+            onError={() => setImgError(true)}
+            referrerPolicy="no-referrer"
+            src={result.thumbnail_url!}
           />
         ) : (
           <div className="empty h-full">

@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { Icon, Pill, formatDate, formatNumber } from "@/components/operator-ui";
 import { Button } from "@/components/ui/button";
 import { formatDuration, platformLabel, platformTone, type QuickReactSource } from "@/components/content/quickReact";
@@ -45,6 +47,8 @@ export function TrendVideoCard({
   onUseInAutomation: (video: TrendVideo) => void;
 }) {
   const rising = isRising(video);
+  const [imgError, setImgError] = useState(false);
+  const showThumb = video.thumbnail_url && !imgError;
 
   return (
     <article className="card card-pad">
@@ -62,17 +66,19 @@ export function TrendVideoCard({
         }}
         type="button"
       >
-        {video.thumbnail_url ? (
+        {showThumb ? (
           <img
-            alt={video.title ?? "Trend"}
+            alt=""
             className="h-full w-full object-cover"
             loading="lazy"
-            src={video.thumbnail_url}
+            onError={() => setImgError(true)}
+            referrerPolicy="no-referrer"
+            src={video.thumbnail_url!}
           />
         ) : (
           <div className="empty h-full">
             <div>
-              <h3>Sem thumbnail</h3>
+              <h3>Sem prévia</h3>
               <p>{platformLabel(video.platform)}</p>
             </div>
           </div>
