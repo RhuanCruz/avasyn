@@ -75,19 +75,30 @@ Deno.serve(async (request) => {
     }
 
     // Resolve posting targets: prefer reel_job_targets (multi-platform), fall back to legacy single account
-    const dbTargets = (job.reel_job_targets ?? []) as DbTarget[];
+    let dbTargets = (job.reel_job_targets ?? []) as DbTarget[];
+
+    // Validate ownership of every multi-platform target up front.
+    for (const t of dbTargets) {
+      const sa = t.social_accounts;
+      if (sa && (sa.user_id !== job.user_id || sa.avatar_id !== job.avatar_id)) {
+        throw new Error("Target account does not belong to this job's avatar");
+      }
+    }
+
+    // Dedup: never publish the same underlying video to an account that already has it.
+    // (Same source_external_id already posted/posting to that account.)
+    const blockedAccountIds = await computeBlockedAccounts(service, job);
 
     let targets: ZernioTarget[] = [];
     let accountIdForHistory = job.account_id as string | null;
+    let dedupSkipped = false;
 
     if (dbTargets.length > 0) {
+      const before = dbTargets.length;
+      dbTargets = dbTargets.filter((t) => t.social_accounts && !blockedAccountIds.has(t.account_id));
+      if (dbTargets.length < before) dedupSkipped = true;
       for (const t of dbTargets) {
-        const sa = t.social_accounts;
-        if (!sa) continue;
-        if (sa.user_id !== job.user_id || sa.avatar_id !== job.avatar_id) {
-          throw new Error("Target account does not belong to this job's avatar");
-        }
-        targets.push({ platform: t.platform as "instagram" | "youtube", accountId: sa.zernio_account_id });
+        targets.push({ platform: t.platform as "instagram" | "youtube", accountId: t.social_accounts!.zernio_account_id });
       }
     } else {
       // Legacy / automation path: single account
@@ -102,13 +113,36 @@ Deno.serve(async (request) => {
       if (account.user_id !== job.user_id || account.avatar_id !== job.avatar_id) {
         throw new Error("Account does not belong to this job's avatar");
       }
-      targets = [{ platform: (account.platform ?? "instagram") as "instagram" | "youtube", accountId: account.zernio_account_id }];
-      accountIdForHistory = account.id;
+      if (blockedAccountIds.has(account.id)) {
+        dedupSkipped = true;
+      } else {
+        targets = [{ platform: (account.platform ?? "instagram") as "instagram" | "youtube", accountId: account.zernio_account_id }];
+        accountIdForHistory = account.id;
+      }
     }
 
-    if (targets.length === 0) throw new Error("No valid targets to post to");
+    if (targets.length === 0) {
+      // Skip benignly (not an error) when there's nothing left to post because the
+      // content was already published to the target account(s).
+      if (dedupSkipped) {
+        return jsonResponse({ skipped: true, reason: "content already published to target account(s)" });
+      }
+      throw new Error("No valid targets to post to");
+    }
 
-    await service.from("reel_jobs").update({ status: "posting" }).eq("id", job.id);
+    // Idempotency lock: atomically claim the job only if it is still "rendered".
+    // If another invocation already claimed/posted it (double-click, retry, race),
+    // abort BEFORE uploading + calling Zernio so we never create a duplicate post.
+    const { data: claimed, error: claimError } = await service
+      .from("reel_jobs")
+      .update({ status: "posting" })
+      .eq("id", job.id)
+      .eq("status", "rendered")
+      .select("id");
+    if (claimError) throw claimError;
+    if (!claimed || claimed.length === 0) {
+      return jsonResponse({ skipped: true, reason: "job already posting or posted" });
+    }
 
     const fileBuffer = await downloadBytes("generated-reels", job.output_path);
     const mediaUrl = await uploadVideoToZernio(`${job.id}.mp4`, fileBuffer);
@@ -216,3 +250,52 @@ Deno.serve(async (request) => {
     );
   }
 });
+
+// Returns the set of internal account ids that already have this job's underlying
+// video published/posting — so we never post the same source video to the same
+// account twice (the root of the "repeated posts" incident). Keyed on the stable
+// source_external_id, so it also catches the same clip re-imported as a new
+// source_videos row. Uploads (no external id) are exempt.
+async function computeBlockedAccounts(
+  service: ReturnType<typeof createServiceClient>,
+  job: { id: string; user_id: string; source_video_id: string | null },
+): Promise<Set<string>> {
+  const blocked = new Set<string>();
+  if (!job.source_video_id) return blocked;
+
+  const { data: sv } = await service
+    .from("source_videos")
+    .select("source_external_id, source_platform")
+    .eq("id", job.source_video_id)
+    .single();
+  const ext = sv?.source_external_id;
+  const platform = sv?.source_platform;
+  if (!ext) return blocked;
+
+  const { data: svRows } = await service
+    .from("source_videos")
+    .select("id")
+    .eq("user_id", job.user_id)
+    .eq("source_external_id", ext)
+    .eq("source_platform", platform);
+  const svIds = (svRows ?? []).map((r: { id: string }) => r.id);
+  if (svIds.length === 0) return blocked;
+
+  const { data: dupJobs } = await service
+    .from("reel_jobs")
+    .select("account_id, reel_job_targets(account_id)")
+    .in("source_video_id", svIds)
+    .in("status", ["posted", "posting"])
+    .neq("id", job.id);
+
+  for (const dj of (dupJobs ?? []) as Array<{
+    account_id: string | null;
+    reel_job_targets: { account_id: string | null }[] | null;
+  }>) {
+    if (dj.account_id) blocked.add(dj.account_id);
+    for (const t of dj.reel_job_targets ?? []) {
+      if (t.account_id) blocked.add(t.account_id);
+    }
+  }
+  return blocked;
+}

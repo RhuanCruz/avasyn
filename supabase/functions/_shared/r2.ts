@@ -31,7 +31,7 @@ function getConfig(): R2Config {
 async function hmacSha256(key: ArrayBuffer, data: string): Promise<ArrayBuffer> {
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
-    key,
+    key as ArrayBuffer,
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
@@ -51,7 +51,7 @@ function toHex(buf: ArrayBuffer): string {
 }
 
 async function buildSigningKey(secretKey: string, dateStr: string): Promise<ArrayBuffer> {
-  const k1 = await hmacSha256(new TextEncoder().encode(`AWS4${secretKey}`), dateStr);
+  const k1 = await hmacSha256(new TextEncoder().encode(`AWS4${secretKey}`).buffer as ArrayBuffer, dateStr);
   const k2 = await hmacSha256(k1, REGION);
   const k3 = await hmacSha256(k2, SERVICE);
   return hmacSha256(k3, "aws4_request");
