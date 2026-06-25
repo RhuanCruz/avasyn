@@ -85,10 +85,10 @@ export function useQuickReact(avatarId: string | null) {
   const ensureSourceVideo = useCallback(async (source: QuickReactSource) => {
     if (!avatarId) throw new Error("Selecione um avatar");
 
-    const cached = savedSourceVideos.find((video) => video.source_url === source.result_url);
+    const cached = savedSourceVideos.find((video) => sourceMatchesVideo(video, source));
     if (cached) return cached;
 
-    const existing = await findSourceVideoForUrl(avatarId, source.result_url);
+    const existing = await findSourceVideoForSource(avatarId, source);
     if (existing) {
       setSavedSourceVideos((current) => mergeSourceVideos(current, [existing]));
       return existing;
@@ -105,7 +105,7 @@ export function useQuickReact(avatarId: string | null) {
 
     let imported: SourceVideo | null = null;
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      imported = await findSourceVideoForUrl(avatarId, source.result_url);
+      imported = await findSourceVideoForSource(avatarId, source);
       if (imported) break;
       await sleep(1000);
     }
@@ -588,12 +588,38 @@ function sleep(milliseconds: number) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
-async function findSourceVideoForUrl(avatarId: string, resultUrl: string) {
+// Match a saved source video against an external result. We key on
+// (platform, external_id) first because share URLs carry volatile tracking
+// params — TikTok in particular rotates `u_code`/`_d` between scans, so the same
+// clip yields a different URL each time and an exact source_url match misses
+// (the importer dedupes by external id and never re-stores the new URL).
+function sourceMatchesVideo(video: SourceVideo, source: QuickReactSource) {
+  if (source.external_id && video.source_external_id) {
+    return video.source_platform === source.platform && video.source_external_id === source.external_id;
+  }
+  return video.source_url === source.result_url;
+}
+
+async function findSourceVideoForSource(avatarId: string, source: QuickReactSource) {
+  if (source.external_id) {
+    const { data, error } = await supabase
+      .from("source_videos")
+      .select("*")
+      .eq("avatar_id", avatarId)
+      .eq("source_platform", source.platform)
+      .eq("source_external_id", source.external_id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return data as SourceVideo;
+  }
+
   const { data, error } = await supabase
     .from("source_videos")
     .select("*")
     .eq("avatar_id", avatarId)
-    .eq("source_url", resultUrl)
+    .eq("source_url", source.result_url)
     .maybeSingle();
   if (error) throw error;
   return data ? (data as SourceVideo) : null;
