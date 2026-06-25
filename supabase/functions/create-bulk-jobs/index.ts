@@ -4,6 +4,7 @@ import {
   getAuthenticatedUser,
   resolveOwnedAvatar,
 } from "../_shared/supabase.ts";
+import { createStructuredResponse } from "../_shared/openai.ts";
 import {
   type BulkTextCombination,
   type GeneratedBulkText,
@@ -128,122 +129,78 @@ async function generateBulkTexts({
   combinations: BulkTextCombination[];
   overlayBrief: string;
 }): Promise<GeneratedBulkText[]> {
-  const apiKey = Deno.env.get("OPENAI_API_KEY");
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is required to generate unique bulk texts");
-  }
-
-  const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4.1-mini";
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      input: [
-        {
-          role: "developer",
-          content: [
-            {
-              type: "input_text",
-              text: [
-                "Você gera textos curtos para Reels de futebol em português do Brasil.",
-                "Responda apenas no JSON schema solicitado.",
-                "Crie exatamente um item por combinação recebida, na mesma ordem.",
-                "Atenção: você NÃO conhece o conteúdo visual real dos vídeos. Não invente o que aconteceu no lance.",
-                "overlayText deve ser genérico, funcionar para qualquer lance, ter no máximo 3 palavras, sem emoji, sem hashtag e sem pontuação exagerada.",
-                "caption deve ser genérica, curta, variada entre itens e não pode afirmar eventos específicos do vídeo.",
-                "Evite palavras específicas como gol, golaço, defesa, falta, pênalti, drible, chute, goleiro ou craque.",
-                "Prefira chamadas neutras como: Olha isso, Que lance, Sem palavras, Que cena, Essa reação diz tudo.",
-                "Evite repetir overlayText ou caption dentro do mesmo lote.",
-              ].join("\n"),
-            },
-          ],
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "input_text",
-              text: JSON.stringify({
-                captionBrief,
-                combinations: combinations.map((combination, index) => ({
-                  index,
-                  reactionId: combination.reactionId,
-                  sourceName: combination.sourceVideo.name,
-                  sourcePlatform: combination.sourceVideo.source_platform,
-                  sourceUrl: combination.sourceVideo.source_url,
-                })),
-                overlayBrief,
-                totalItems: combinations.length,
-              }),
-            },
-          ],
-        },
-      ],
-      max_output_tokens: Math.min(12000, 500 + combinations.length * 120),
-      text: {
-        format: {
-          type: "json_schema",
-          name: "bulk_video_texts",
-          strict: true,
-          schema: {
+  const parsed = await createStructuredResponse<{ items?: GeneratedBulkText[] }>({
+    input: [
+      {
+        role: "developer",
+        content: [
+          {
+            type: "input_text",
+            text: [
+              "Você gera textos curtos para Reels de futebol em português do Brasil.",
+              "Responda apenas no JSON schema solicitado.",
+              "Crie exatamente um item por combinação recebida, na mesma ordem.",
+              "Atenção: você NÃO conhece o conteúdo visual real dos vídeos. Não invente o que aconteceu no lance.",
+              "overlayText deve ser genérico, funcionar para qualquer lance, ter no máximo 3 palavras, sem emoji, sem hashtag e sem pontuação exagerada.",
+              "caption deve ser genérica, curta, variada entre itens e não pode afirmar eventos específicos do vídeo.",
+              "Evite palavras específicas como gol, golaço, defesa, falta, pênalti, drible, chute, goleiro ou craque.",
+              "Prefira chamadas neutras como: Olha isso, Que lance, Sem palavras, Que cena, Essa reação diz tudo.",
+              "Evite repetir overlayText ou caption dentro do mesmo lote.",
+            ].join("\n"),
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "input_text",
+            text: JSON.stringify({
+              captionBrief,
+              combinations: combinations.map((combination, index) => ({
+                index,
+                reactionId: combination.reactionId,
+                sourceName: combination.sourceVideo.name,
+                sourcePlatform: combination.sourceVideo.source_platform,
+                sourceUrl: combination.sourceVideo.source_url,
+              })),
+              overlayBrief,
+              totalItems: combinations.length,
+            }),
+          },
+        ],
+      },
+    ],
+    maxOutputTokens: Math.min(12000, 500 + combinations.length * 120),
+    schemaName: "bulk_video_texts",
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        items: {
+          type: "array",
+          minItems: combinations.length,
+          maxItems: combinations.length,
+          items: {
             type: "object",
             additionalProperties: false,
             properties: {
-              items: {
-                type: "array",
-                minItems: combinations.length,
-                maxItems: combinations.length,
-                items: {
-                  type: "object",
-                  additionalProperties: false,
-                  properties: {
-                    caption: { type: "string" },
-                    overlayText: { type: "string" },
-                  },
-                  required: ["caption", "overlayText"],
-                },
-              },
+              caption: { type: "string" },
+              overlayText: { type: "string" },
             },
-            required: ["items"],
+            required: ["caption", "overlayText"],
           },
         },
       },
-    }),
+      required: ["items"],
+    },
   });
 
-  const raw = await response.text();
-  if (!response.ok) {
-    throw new Error(`OpenAI text generation failed: ${raw}`);
-  }
-
-  const parsedResponse = JSON.parse(raw);
-  const outputText = extractOutputText(parsedResponse);
-  if (!outputText) {
-    throw new Error("OpenAI text generation returned no text");
-  }
-
-  const parsed = JSON.parse(outputText) as { items?: GeneratedBulkText[] };
   if (!Array.isArray(parsed.items) || parsed.items.length !== combinations.length) {
-    throw new Error("OpenAI text generation returned an invalid item count");
+    throw new Error("Bulk text generation returned an invalid item count");
   }
 
   return normalizeGeneratedTexts(parsed.items, combinations);
-}
-
-function extractOutputText(response: unknown) {
-  const candidate = response as {
-    output?: Array<{ content?: Array<{ text?: string; type?: string }> }>;
-    output_text?: string;
-  };
-  if (candidate.output_text) return candidate.output_text;
-  return candidate.output
-    ?.flatMap((item) => item.content ?? [])
-    .find((content) => content.type === "output_text" && content.text)
-    ?.text ?? null;
 }
 
 async function triggerProcessor(
