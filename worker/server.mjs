@@ -432,12 +432,16 @@ async function downloadYouTubeWithPreferredFallback({
   clipUrl,
   cookiesPath,
 }) {
+  const failures = [];
+
   if (saveNowApiKey) {
     try {
       await downloadYouTubeWithSaveNow(clipUrl, clipPath);
       return;
     } catch (error) {
-      console.warn(`SaveNow YouTube download failed, falling back: ${formatErrorMessage(error)}`);
+      const message = formatErrorMessage(error);
+      failures.push(`SaveNow: ${message}`);
+      console.warn(`SaveNow YouTube download failed, falling back: ${message}`);
     }
   }
 
@@ -447,16 +451,23 @@ async function downloadYouTubeWithPreferredFallback({
       return;
     }
   } catch (error) {
-    console.warn(`Apify YouTube download failed, falling back to yt-dlp: ${formatErrorMessage(error)}`);
+    const message = formatErrorMessage(error);
+    failures.push(`Apify: ${message}`);
+    console.warn(`Apify YouTube download failed, falling back to yt-dlp: ${message}`);
   }
 
-  await runCommand("yt-dlp", createYtDlpArgs({
-    clipPath,
-    clipUrl,
-    cookiesPath,
-    nodePath: ytdlpNodePath,
-    proxyUrl: ytdlpProxy,
-  }));
+  try {
+    await runCommand("yt-dlp", createYtDlpArgs({
+      clipPath,
+      clipUrl,
+      cookiesPath,
+      nodePath: ytdlpNodePath,
+      proxyUrl: ytdlpProxy,
+    }));
+  } catch (error) {
+    failures.push(`yt-dlp: ${formatErrorMessage(error)}`);
+    throw new Error(`All YouTube download providers failed. ${failures.join(" | ")}`);
+  }
 }
 
 async function downloadYouTubeWithApify(url, videoPath) {
@@ -485,8 +496,19 @@ async function downloadYouTubeWithApify(url, videoPath) {
     throw new Error(`Apify did not return a downloadable YouTube video URL.${status} keys=${keys}`);
   }
 
-  await downloadHttpFile(downloadUrl, videoPath);
+  await downloadHttpFile(downloadUrl, videoPath, {
+    token: isApifyApiUrl(downloadUrl) ? apifyToken : undefined,
+  });
   return item;
+}
+
+function isApifyApiUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.hostname === "api.apify.com";
+  } catch {
+    return false;
+  }
 }
 
 function formatErrorMessage(error) {
@@ -623,8 +645,9 @@ async function uploadStorageFile(bucket, storagePath, localPath, contentType) {
   if (upload.error) throw upload.error;
 }
 
-async function downloadHttpFile(url, outputPath) {
-  const response = await fetch(url);
+async function downloadHttpFile(url, outputPath, options = {}) {
+  const headers = options.token ? { Authorization: `Bearer ${options.token}` } : undefined;
+  const response = await fetch(url, { headers });
   if (!response.ok) {
     throw new Error(`Failed to download media: ${response.status} ${response.statusText}`);
   }
