@@ -466,7 +466,11 @@ async function downloadYouTubeWithPreferredFallback({
     }));
   } catch (error) {
     failures.push(`yt-dlp: ${formatErrorMessage(error)}`);
-    throw new Error(`All YouTube download providers failed. ${failures.join(" | ")}`);
+    throw new Error(
+      "All YouTube download providers failed. "
+      + "SaveNow/Apify did not provide a usable MP4 before yt-dlp fallback was blocked. "
+      + failures.join(" | "),
+    );
   }
 }
 

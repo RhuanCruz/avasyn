@@ -645,6 +645,9 @@ function mergeSourceVideos(current: SourceVideo[], next: SourceVideo[]) {
 
 export function formatMediaImportError(message: string | null) {
   if (!message) return "Falha ao importar mídia";
+  if (/All YouTube download providers failed/i.test(message)) {
+    return "Não foi possível baixar este vídeo pelo SaveNow, Apify ou yt-dlp. Tente outro vídeo ou verifique o actor/chave da Apify no worker.";
+  }
   if (/Apify YouTube downloader returned demo output|actor subscription|APIFY_YOUTUBE_DOWNLOADER_ACTOR_ID|downloadable YouTube video URL/i.test(message)) {
     return "A Apify não retornou um MP4 baixável. Verifique se o actor do YouTube está liberado/subscrito na sua conta Apify.";
   }
