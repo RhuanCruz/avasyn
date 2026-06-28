@@ -34,6 +34,10 @@ import {
   runWebApiYouTubeDownloader,
 } from "./webapi-youtube.mjs";
 import {
+  normalizeHuntApiYouTubeCandidate,
+  runHuntApiYouTubeDownloader,
+} from "./huntapi-youtube.mjs";
+import {
   createGalleryDlArgs,
   detectPlatform,
   sanitizeExternalId,
@@ -58,6 +62,14 @@ const apifyYouTubeDownloaderActorId = process.env.APIFY_YOUTUBE_DOWNLOADER_ACTOR
 const apifyYouTubeQuality = process.env.APIFY_YOUTUBE_QUALITY ?? "720";
 const saveNowApiKey = process.env.SAVENOW_API_KEY;
 const saveNowFormat = process.env.SAVENOW_FORMAT ?? "720";
+const huntApiKey = process.env.HUNTAPI_API_KEY;
+const huntApiVideoDownloadEndpoint = process.env.HUNTAPI_VIDEO_DOWNLOAD_ENDPOINT;
+const huntApiDownloadType = process.env.HUNTAPI_DOWNLOAD_TYPE ?? "audio_video";
+const huntApiMaxDuration = Number(process.env.HUNTAPI_MAX_DURATION ?? 300);
+const huntApiVideoQuality = process.env.HUNTAPI_VIDEO_QUALITY ?? "best";
+const huntApiVideoFormat = process.env.HUNTAPI_VIDEO_FORMAT ?? "mp4";
+const huntApiTimeoutSeconds = Number(process.env.HUNTAPI_TIMEOUT_SECONDS ?? 600);
+const huntApiPollIntervalMs = Number(process.env.HUNTAPI_POLL_INTERVAL_MS ?? 2000);
 const webApiYouTubeApiKey = process.env.WEBAPI_YOUTUBE_API_KEY;
 const webApiYouTubeEndpoint = process.env.WEBAPI_YOUTUBE_ENDPOINT;
 const webApiYouTubeAuthMode = process.env.WEBAPI_YOUTUBE_AUTH_MODE ?? "x-api-key";
@@ -370,6 +382,22 @@ async function downloadImportUrl(url, workdir) {
 }
 
 async function downloadYouTubeImportUrl(url, videoPath, infoPath, cookiesPath) {
+  if (huntApiKey) {
+    try {
+      const item = await downloadYouTubeWithHuntApi(url, videoPath);
+      const candidate = normalizeHuntApiYouTubeCandidate(item, url);
+      return {
+        videoPath,
+        metadata: candidate.metadata,
+        externalId: sanitizeExternalId(candidate.externalId ?? url),
+        platform: candidate.platform,
+        sourceUrl: candidate.sourceUrl,
+      };
+    } catch (error) {
+      console.warn(`HuntAPI YouTube import failed, falling back: ${formatErrorMessage(error)}`);
+    }
+  }
+
   if (webApiYouTubeApiKey) {
     try {
       const item = await downloadYouTubeWithWebApi(url, videoPath);
@@ -441,6 +469,22 @@ async function downloadYouTubeImportUrl(url, videoPath, infoPath, cookiesPath) {
   };
 }
 
+async function downloadYouTubeWithHuntApi(url, videoPath) {
+  const item = await runHuntApiYouTubeDownloader({
+    apiKey: huntApiKey,
+    downloadType: huntApiDownloadType,
+    endpoint: huntApiVideoDownloadEndpoint,
+    maxDuration: huntApiMaxDuration,
+    pollIntervalMs: huntApiPollIntervalMs,
+    sourceUrl: url,
+    timeoutSeconds: huntApiTimeoutSeconds,
+    videoFormat: huntApiVideoFormat,
+    videoQuality: huntApiVideoQuality,
+  });
+  await downloadHttpFile(item.download_url, videoPath);
+  return item;
+}
+
 async function downloadYouTubeWithWebApi(url, videoPath) {
   const item = await runWebApiYouTubeDownloader({
     apiKey: webApiYouTubeApiKey,
@@ -469,6 +513,17 @@ async function downloadYouTubeWithPreferredFallback({
   cookiesPath,
 }) {
   const failures = [];
+
+  if (huntApiKey) {
+    try {
+      await downloadYouTubeWithHuntApi(clipUrl, clipPath);
+      return;
+    } catch (error) {
+      const message = formatErrorMessage(error);
+      failures.push(`HuntAPI: ${message}`);
+      console.warn(`HuntAPI YouTube download failed, falling back: ${message}`);
+    }
+  }
 
   if (webApiYouTubeApiKey) {
     try {
@@ -515,7 +570,7 @@ async function downloadYouTubeWithPreferredFallback({
     failures.push(`yt-dlp: ${formatErrorMessage(error)}`);
     throw new Error(
       "All YouTube download providers failed. "
-      + "WebAPI/SaveNow/Apify did not provide a usable MP4 before yt-dlp fallback was blocked. "
+      + "HuntAPI/WebAPI/SaveNow/Apify did not provide a usable MP4 before yt-dlp fallback was blocked. "
       + failures.join(" | "),
     );
   }
