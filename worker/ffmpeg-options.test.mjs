@@ -45,6 +45,22 @@ describe("createFfmpegArgs", () => {
     expect(filter).toContain("box=1:boxcolor=white:boxborderw=18");
   });
 
+  test("skips the overlay box when the text is blank", () => {
+    for (const overlayText of ["", "   ", undefined]) {
+      const args = createFfmpegArgs({
+        clipPath: "/tmp/clip.mp4",
+        outputPath: "/tmp/output.mp4",
+        overlayText,
+        reactionPath: "/tmp/reaction.mp4",
+        withDrawText: true,
+      });
+      const filter = args[args.indexOf("-filter_complex") + 1];
+
+      expect(filter).not.toContain("drawtext");
+      expect(filter).toContain("[stack]copy[out]");
+    }
+  });
+
   test("uses reaction position to crop the top split", () => {
     const args = createFfmpegArgs({
       clipPath: "/tmp/clip.mp4",
