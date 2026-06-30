@@ -50,6 +50,7 @@ export function BulkEditorPage() {
   const [selectedReactionIds, setSelectedReactionIds] = useState<string[]>([]);
   const [caption, setCaption] = useState("Legenda curta de futebol com tom de reação");
   const [overlayText, setOverlayText] = useState("Frase simples de até 3 palavras sobre o lance");
+  const [noOverlay, setNoOverlay] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createdJobIds, setCreatedJobIds] = useState<string[]>([]);
   const [positioningReaction, setPositioningReaction] = useState<ReactionVideo | null>(null);
@@ -126,7 +127,8 @@ export function BulkEditorPage() {
         sourceVideoIds: selectedSourceIds,
         reactionIds: selectedReactionIds,
         caption,
-        overlayText,
+        overlayText: noOverlay ? "" : overlayText,
+        noOverlay,
       });
       const jobIds = response.jobs?.map((job) => job.id) ?? [];
       setCreatedJobIds(jobIds);
@@ -144,6 +146,15 @@ export function BulkEditorPage() {
       <AppTopbar
         actions={
           <>
+            <div className="sv-format-toggle">
+              <button
+                onClick={() => navigate(selectedAvatarId ? `/avatars/${selectedAvatarId}/videos/new` : "/avatars")}
+                type="button"
+              >
+                Vídeo roteirizado
+              </button>
+              <button className="active" type="button">React</button>
+            </div>
             <AvatarSwitcher
               avatars={avatars}
               includeAll={false}
@@ -169,7 +180,7 @@ export function BulkEditorPage() {
           <div>
             <h1 className="page-title">Editor em massa</h1>
             <p className="page-subtitle">
-              Monte lotes do formato react(): base + reaction + texto + renderização.
+              Monte lotes do formato React: base + reaction + texto + renderização.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -255,17 +266,30 @@ export function BulkEditorPage() {
                   </Field>
 
                   <Field>
-                    <FieldLabel htmlFor="bulk-overlay">Direção do texto da divisão</FieldLabel>
-                    <Input
-                      id="bulk-overlay"
-                      onChange={(event) => setOverlayText(event.target.value)}
-                      required
-                      value={overlayText}
-                    />
-                    <FieldDescription>
-                      A IA gera uma frase final única com no máximo 3 palavras para cada vídeo.
-                    </FieldDescription>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        checked={noOverlay}
+                        onChange={(event) => setNoOverlay(event.target.checked)}
+                        type="checkbox"
+                      />
+                      Sem texto de overlay
+                    </label>
                   </Field>
+
+                  {!noOverlay ? (
+                    <Field>
+                      <FieldLabel htmlFor="bulk-overlay">Direção do texto da divisão</FieldLabel>
+                      <Input
+                        id="bulk-overlay"
+                        onChange={(event) => setOverlayText(event.target.value)}
+                        required
+                        value={overlayText}
+                      />
+                      <FieldDescription>
+                        A IA gera uma frase final única com no máximo 3 palavras para cada vídeo.
+                      </FieldDescription>
+                    </Field>
+                  ) : null}
 
                   <div className="card card-pad" style={{ padding: 12 }}>
                     <div className="text-xs muted">direção para IA</div>
@@ -274,22 +298,24 @@ export function BulkEditorPage() {
                         <div className="thumb-art" style={{ color: "var(--text-muted)" }}>
                           PREVIEW
                         </div>
-                        <div style={{ position: "absolute", top: "43%", insetInline: 16 }}>
-                          <div
-                            style={{
-                              background: "rgba(0,0,0,0.76)",
-                              border: "1px solid var(--border)",
-                              borderRadius: 10,
-                              padding: "10px 12px",
-                              textAlign: "center",
-                              fontSize: 12,
-                              fontWeight: 600,
-                              letterSpacing: "0.04em",
-                            }}
-                          >
-                            {overlayText || "Direção do overlay"}
+                        {!noOverlay ? (
+                          <div style={{ position: "absolute", top: "43%", insetInline: 16 }}>
+                            <div
+                              style={{
+                                background: "rgba(0,0,0,0.76)",
+                                border: "1px solid var(--border)",
+                                borderRadius: 10,
+                                padding: "10px 12px",
+                                textAlign: "center",
+                                fontSize: 12,
+                                fontWeight: 600,
+                                letterSpacing: "0.04em",
+                              }}
+                            >
+                              {overlayText || "Direção do overlay"}
+                            </div>
                           </div>
-                        </div>
+                        ) : null}
                       </div>
                       <p className="text-sm muted">{caption}</p>
                       <p className="text-xs muted">

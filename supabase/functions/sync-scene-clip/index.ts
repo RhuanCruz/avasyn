@@ -1,0 +1,116 @@
+import { handleOptions, jsonResponse } from "../_shared/cors.ts";
+import { hedraRequest, mapHedraGenerationStatus } from "../_shared/hedra.ts";
+import {
+  createServiceClient,
+  getAuthenticatedUser,
+} from "../_shared/supabase.ts";
+
+Deno.serve(async (request) => {
+  const options = handleOptions(request);
+  if (options) return options;
+
+  try {
+    const user = await getAuthenticatedUser(request);
+    const service = createServiceClient();
+    const body = await request.json();
+    const sceneId = String(body.sceneId ?? "").trim();
+    if (!sceneId) throw new Error("sceneId is required");
+
+    const { data: scene, error: sceneError } = await service
+      .from("presenter_video_scenes")
+      .select("*")
+      .eq("id", sceneId)
+      .eq("user_id", user.id)
+      .single();
+    if (sceneError || !scene) throw new Error("Cena não encontrada");
+
+    if (scene.clip_status === "ready" && scene.clip_url) {
+      return jsonResponse({ scene });
+    }
+
+    const generationId = readString(scene.clip_generation_id);
+    if (!generationId) throw new Error("Cena não tem render Hedra");
+
+    const status = await hedraRequest<Record<string, unknown>>(
+      `/generations/${encodeURIComponent(generationId)}/status`,
+    );
+    const mapped = mapHedraGenerationStatus(readString(status.status));
+
+    if (mapped === "error") {
+      const { data: updated } = await service
+        .from("presenter_video_scenes")
+        .update({
+          clip_status: "error",
+          error_message: readString(status.error_message) ?? "Falha no render do vídeo",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", scene.id)
+        .select("*")
+        .single();
+      return jsonResponse({ scene: updated ?? scene });
+    }
+
+    if (mapped !== "completed") {
+      return jsonResponse({ scene, pending: true });
+    }
+
+    const assetId = readString(status.asset_id);
+    let clipUrl = readString(status.download_url) ??
+      readString(status.url) ??
+      readString(status.streaming_url);
+    let thumbnailUrl = readString(status.thumbnail_url) ?? readString(status.poster_url);
+    if (!clipUrl && assetId) {
+      const fetched = await fetchAssetUrl("video", assetId);
+      if (fetched) {
+        clipUrl = fetched.url ?? clipUrl;
+        thumbnailUrl = thumbnailUrl ?? fetched.thumbnailUrl;
+      }
+    }
+
+    const { data: updated, error } = await service
+      .from("presenter_video_scenes")
+      .update({
+        clip_status: "ready",
+        clip_url: clipUrl,
+        clip_thumbnail_url: thumbnailUrl,
+        error_message: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", scene.id)
+      .select("*")
+      .single();
+    if (error || !updated) throw error ?? new Error("Falha ao atualizar cena");
+
+    return jsonResponse({ scene: updated });
+  } catch (error) {
+    return jsonResponse(
+      { error: error instanceof Error ? error.message : "Unknown error" },
+      { status: 400 },
+    );
+  }
+});
+
+async function fetchAssetUrl(
+  type: "image" | "video",
+  assetId: string,
+): Promise<{ url: string | null; thumbnailUrl: string | null } | null> {
+  try {
+    const res = await hedraRequest<unknown>(`/assets?type=${type}&ids=${encodeURIComponent(assetId)}`);
+    const list = Array.isArray(res)
+      ? res
+      : (Array.isArray((res as Record<string, unknown>)?.assets) ? (res as Record<string, unknown>).assets as unknown[] : []);
+    const first = (list[0] ?? null) as Record<string, unknown> | null;
+    if (!first) return null;
+    const inner = (first.asset ?? {}) as Record<string, unknown>;
+    return {
+      url: readString(inner.download_url) ?? readString(inner.url),
+      thumbnailUrl: readString(first.thumbnail_url),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}

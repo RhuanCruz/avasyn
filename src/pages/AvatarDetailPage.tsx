@@ -28,6 +28,7 @@ import { supabase } from "@/lib/supabase";
 import type {
   Avatar,
   AvatarStatus,
+  PresenterAvatarImage,
   PresenterAvatarProfile,
   PresenterPersona,
   PresenterVideoProject,
@@ -46,7 +47,7 @@ type AvatarSnapshot = {
   activeAccount: SocialAccount | null;
 };
 
-type HubTab = "overview" | "biblioteca" | "sobre" | "calendario" | "automacoes" | "trends";
+type HubTab = "overview" | "videos" | "biblioteca" | "sobre" | "calendario" | "automacoes" | "trends";
 
 export function AvatarDetailPage() {
   const params = useParams<{ avatarId: string }>();
@@ -63,7 +64,7 @@ export function AvatarDetailPage() {
     const t = searchParams.get("tab");
     if (
       t === "calendario" || t === "overview" || t === "biblioteca" ||
-      t === "sobre" || t === "automacoes" || t === "trends"
+      t === "sobre" || t === "automacoes" || t === "trends" || t === "videos"
     ) {
       return t;
     }
@@ -250,18 +251,6 @@ export function AvatarDetailPage() {
     return <div className="page"><div className="panel empty"><div><h3>Avatar invalido</h3></div></div></div>;
   }
 
-  if (avatar?.avatar_kind === "presenter") {
-    return (
-      <PresenterAvatarHub
-        avatar={avatar}
-        avatarId={avatarId}
-        avatars={avatars}
-        selectedAvatarId={selectedAvatarId}
-        setSelectedAvatarId={setSelectedAvatarId}
-      />
-    );
-  }
-
   return (
     <>
       <AppTopbar
@@ -280,8 +269,12 @@ export function AvatarDetailPage() {
             <Link className={buttonVariants({ variant: "outline" })} to={`/library?avatarId=${avatarId}`}>
               Biblioteca
             </Link>
-            <Link className={buttonVariants()} to={`/bulk-editor?avatarId=${avatarId}`}>
+            <Link className={buttonVariants({ variant: "outline" })} to={`/bulk-editor?avatarId=${avatarId}`}>
               Abrir editor
+            </Link>
+            <Link className={buttonVariants()} to={`/avatars/${avatarId}/videos/new`}>
+              <Icon name="film" />
+              Criar vídeo
             </Link>
           </>
         }
@@ -325,7 +318,7 @@ export function AvatarDetailPage() {
                   {avatar?.persona_summary ?? "Defina a persona editorial e o papel deste avatar no sistema."}
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <Pill tone="violet">formato ativo: react()</Pill>
+                  <Pill tone="violet">React + vídeos</Pill>
                   <Pill tone="base">{snapshot.data.sourceVideos.length} base</Pill>
                   <Pill tone="reaction">{snapshot.data.reactionVideos.length} reactions</Pill>
                 </div>
@@ -360,6 +353,7 @@ export function AvatarDetailPage() {
         <div className="tabs mt-4">
           {[
             ["overview", "Visao geral"],
+            ["videos", "Vídeos"],
             ["biblioteca", "Biblioteca"],
             ["calendario", "Calendário de Posts"],
             ["trends", "Trends"],
@@ -527,12 +521,17 @@ export function AvatarDetailPage() {
             onInitialThemeConsumed={() => setPendingAutomationTheme(null)}
           />
         ) : null}
+
+        {tab === "videos" && avatar ? (
+          <VideosTab avatar={avatar} avatarId={avatarId} />
+        ) : null}
       </div>
     </>
   );
 }
 
 type PresenterSnapshot = {
+  images: PresenterAvatarImage[];
   persona: PresenterPersona | null;
   profile: PresenterAvatarProfile | null;
   projects: PresenterVideoProject[];
@@ -541,18 +540,12 @@ type PresenterSnapshot = {
 
 type ProjectResponse = { project: PresenterVideoProject };
 
-function PresenterAvatarHub({
+function VideosTab({
   avatar,
   avatarId,
-  avatars,
-  selectedAvatarId,
-  setSelectedAvatarId,
 }: {
   avatar: Avatar;
   avatarId: string;
-  avatars: Avatar[];
-  selectedAvatarId: string | null;
-  setSelectedAvatarId: (avatarId: string | null) => void;
 }) {
   const [topic, setTopic] = useState("");
   const [creatingScript, setCreatingScript] = useState(false);
@@ -563,7 +556,7 @@ function PresenterAvatarHub({
   const [reviewProject, setReviewProject] = useState<PresenterVideoProject | null>(null);
 
   const loadPresenterSnapshot = useCallback(async (): Promise<PresenterSnapshot> => {
-    const [profileResult, personaResult, voicesResult, projectsResult] = await Promise.all([
+    const [profileResult, personaResult, voicesResult, imagesResult, projectsResult] = await Promise.all([
       supabase
         .from("presenter_avatar_profiles")
         .select("*")
@@ -580,6 +573,11 @@ function PresenterAvatarHub({
         .eq("avatar_id", avatarId)
         .order("created_at", { ascending: false }),
       supabase
+        .from("presenter_avatar_images")
+        .select("*")
+        .eq("avatar_id", avatarId)
+        .order("created_at", { ascending: false }),
+      supabase
         .from("presenter_video_projects")
         .select("*")
         .eq("avatar_id", avatarId)
@@ -589,9 +587,11 @@ function PresenterAvatarHub({
     if (profileResult.error) throw profileResult.error;
     if (personaResult.error) throw personaResult.error;
     if (voicesResult.error) throw voicesResult.error;
+    if (imagesResult.error) throw imagesResult.error;
     if (projectsResult.error) throw projectsResult.error;
 
     return {
+      images: (imagesResult.data ?? []) as PresenterAvatarImage[],
       persona: (personaResult.data ?? null) as PresenterPersona | null,
       profile: (profileResult.data ?? null) as PresenterAvatarProfile | null,
       projects: (projectsResult.data ?? []) as PresenterVideoProject[],
@@ -600,6 +600,7 @@ function PresenterAvatarHub({
   }, [avatarId]);
 
   const presenter = useSupabaseQuery(loadPresenterSnapshot, {
+    images: [],
     persona: null,
     profile: null,
     projects: [],
@@ -611,8 +612,12 @@ function PresenterAvatarHub({
     ? persona.structured_persona.summary
     : avatar.persona_summary ?? "Configure a persona presenter.";
   const selectedVoice =
-    presenter.data.voices.find((voice) => voice.voice_id === profile?.selected_voice_id) ??
+    presenter.data.voices.find((voice) => voice.voice_id === (profile?.hedra_voice_id ?? profile?.selected_voice_id)) ??
     presenter.data.voices.find((voice) => voice.selected) ??
+    null;
+  const approvedImage =
+    presenter.data.images.find((image) => image.id === profile?.approved_base_image_id) ??
+    presenter.data.images.find((image) => image.status === "approved") ??
     null;
 
   useEffect(() => {
@@ -671,7 +676,7 @@ function PresenterAvatarHub({
       });
       await presenter.refresh();
       setReviewProject(null);
-      toast.success("Vídeo enviado para HeyGen");
+      toast.success("Vídeo enviado para Hedra");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao enviar vídeo");
     }
@@ -741,75 +746,30 @@ function PresenterAvatarHub({
 
   return (
     <>
-      <AppTopbar
-        actions={
-          <>
-            <AvatarSwitcher
-              avatars={avatars}
-              includeAll={false}
-              onChange={(nextAvatarId) => {
-                if (nextAvatarId) window.location.href = `/avatars/${nextAvatarId}`;
-              }}
-              selectedAvatarId={selectedAvatarId}
-            />
-            <Link className={buttonVariants()} to="/avatars/new/presenter">
-              Novo presenter
-            </Link>
-          </>
-        }
-        crumbs={[
-          { label: "Workspace", icon: "home", href: "/" },
-          { label: "Avatares", icon: "users", href: "/avatars" },
-          { label: avatar.name },
-        ]}
-      />
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <Pill tone={profile?.hedra_image_asset_id ? "ok" : "warn"}>imagem Hedra</Pill>
+        <Pill tone={selectedVoice ? "ok" : "warn"}>voz</Pill>
+        <Pill tone="base">{presenter.data.projects.length} vídeos</Pill>
+        <Link className={buttonVariants({ className: "ml-auto", size: "sm" })} to={`/avatars/${avatarId}/videos/new`}>
+          <Icon name="film" />
+          Criar vídeo
+        </Link>
+      </div>
 
-      <div className="page">
-        <section className="panel card-pad">
-          <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
-            <div className="flex items-start gap-4">
-              {profile?.heygen_preview_image_url ? (
-                <img
-                  alt={`Preview de ${avatar.name}`}
-                  className="avatar-profile-photo"
-                  src={profile.heygen_preview_image_url}
-                />
-              ) : (
-                <AvatarBubble avatar={avatar} size="xl" />
-              )}
-              <div className="col" style={{ gap: 8 }}>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="page-title" style={{ margin: 0 }}>{avatar.name}</h1>
-                  <StatusPill kind="avatar" status={avatar.status} />
-                  <Pill tone="violet">presenter</Pill>
-                </div>
-                <p className="text-md muted" style={{ maxWidth: 760 }}>
-                  {personaSummary}
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <Pill tone={profile?.heygen_avatar_id ? "ok" : "warn"}>visual HeyGen</Pill>
-                  <Pill tone={selectedVoice ? "ok" : "warn"}>voz</Pill>
-                  <Pill tone="base">{presenter.data.projects.length} vídeos</Pill>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <div className="mt-4 grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+      <div className="mt-4 grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
           <div className="flex flex-col gap-4">
             <HubSection description="Estado operacional do avatar presenter." title="Setup">
               <div className="grid gap-3">
                 <SetupRow ok={Boolean(persona?.status === "approved")} text="Persona aprovada" />
-                <SetupRow ok={Boolean(profile?.heygen_avatar_id)} text="Avatar HeyGen criado" />
-                <SetupRow ok={Boolean(profile?.selected_voice_id ?? profile?.default_voice_id)} text="Voz definida" />
+                <SetupRow ok={Boolean(profile?.hedra_image_asset_id)} text="Imagem base aprovada" />
+                <SetupRow ok={Boolean(profile?.hedra_voice_id ?? profile?.selected_voice_id ?? profile?.default_voice_id)} text="Voz definida" />
               </div>
               <Link className={buttonVariants({ className: "mt-4 w-full", variant: "outline" })} to="/avatars/new/presenter">
                 Abrir wizard
               </Link>
             </HubSection>
 
-            <HubSection description="Voz selecionada e opções geradas pela HeyGen." title="Voz">
+            <HubSection description="Voz selecionada da Hedra para este presenter." title="Voz">
               {selectedVoice ? (
                 <div className="card card-pad">
                   <div className="text-md">{selectedVoice.name}</div>
@@ -825,7 +785,7 @@ function PresenterAvatarHub({
           </div>
 
           <div className="flex flex-col gap-4">
-            <HubSection description="Gere roteiros com pesquisa atual antes de enviar para HeyGen." title="Novo vídeo">
+            <HubSection description="Gere roteiros com pesquisa atual antes de enviar para Hedra." title="Novo vídeo">
               <form onSubmit={generateScript}>
                 <FieldGroup>
                   <Field>
@@ -845,7 +805,7 @@ function PresenterAvatarHub({
               </form>
             </HubSection>
 
-            <HubSection description="Roteiros, status HeyGen e vídeo final." title="Projetos">
+            <HubSection description="Roteiros, status Hedra e vídeo final." title="Projetos">
               {presenter.data.projects.length === 0 ? (
                 <EmptyMini text="Nenhum projeto de vídeo ainda." />
               ) : (
@@ -868,7 +828,6 @@ function PresenterAvatarHub({
             </HubSection>
           </div>
         </div>
-      </div>
       {reviewProject ? (
         <PresenterScriptModal
           onClose={() => setReviewProject(null)}
@@ -976,7 +935,7 @@ function PresenterProjectCard({
             </Button>
           </div>
         ) : null}
-        {isProcessing || project.heygen_video_id ? (
+        {isProcessing || project.hedra_generation_id ? (
           <Button
             disabled={syncing}
             onClick={() => onSync(project)}
@@ -1047,7 +1006,7 @@ function PresenterProcessingPreview({
         <div className="av-bubble lg" style={{ background: "var(--info-bg)", color: "var(--info)", borderRadius: 12 }}>
           <Icon name={waiting ? "clock" : "refresh"} />
         </div>
-        <div className="text-sm">{reprocessing ? "Reprocessando roteiro" : waiting ? "Enviado para HeyGen" : "Processando vídeo"}</div>
+        <div className="text-sm">{reprocessing ? "Reprocessando roteiro" : waiting ? "Enviado para Hedra" : "Processando vídeo"}</div>
         <div className="text-xs muted">{reprocessing ? "O novo roteiro vai aparecer neste card." : "O card atualiza via Supabase Realtime."}</div>
       </div>
       <div className="progress absolute bottom-0 left-0 right-0 thin">
@@ -1086,7 +1045,7 @@ function PresenterScriptModal({
               <PresenterProjectStatusPill status={project.status} />
               <span className="text-lg">{project.topic}</span>
             </div>
-            <p className="page-subtitle">Leia e ajuste o roteiro completo antes de enviar para a HeyGen.</p>
+            <p className="page-subtitle">Leia e ajuste o roteiro completo antes de enviar para a Hedra.</p>
           </div>
           <Button onClick={onClose} size="sm" variant="outline">
             <Icon name="x" />
@@ -1140,7 +1099,7 @@ function PresenterScriptModal({
             <Button onClick={onClose} variant="outline">Fechar</Button>
             {canSubmit ? (
               <Button disabled={!scriptText.trim()} onClick={() => onSubmit(project, scriptText)}>
-                Enviar para HeyGen
+                Enviar para Hedra
               </Button>
             ) : null}
           </div>

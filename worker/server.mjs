@@ -30,6 +30,10 @@ import {
   runSaveNowYouTubeDownloader,
 } from "./savenow-youtube.mjs";
 import {
+  normalizeWebApiYouTubeCandidate,
+  runWebApiYouTubeDownloader,
+} from "./webapi-youtube.mjs";
+import {
   createGalleryDlArgs,
   detectPlatform,
   sanitizeExternalId,
@@ -54,6 +58,10 @@ const apifyYouTubeDownloaderActorId = process.env.APIFY_YOUTUBE_DOWNLOADER_ACTOR
 const apifyYouTubeQuality = process.env.APIFY_YOUTUBE_QUALITY ?? "720";
 const saveNowApiKey = process.env.SAVENOW_API_KEY;
 const saveNowFormat = process.env.SAVENOW_FORMAT ?? "720";
+const webApiYouTubeApiKey = process.env.WEBAPI_YOUTUBE_API_KEY;
+const webApiYouTubeEndpoint = process.env.WEBAPI_YOUTUBE_ENDPOINT;
+const webApiYouTubeAuthMode = process.env.WEBAPI_YOUTUBE_AUTH_MODE ?? "x-api-key";
+const webApiYouTubeFormat = process.env.WEBAPI_YOUTUBE_FORMAT ?? "720";
 const workerRevision = process.env.AVASYN_WORKER_REVISION ?? "local";
 const instagramDownloadDelaySeconds = Number(
   process.env.INSTAGRAM_DOWNLOAD_DELAY_SECONDS ?? 2,
@@ -362,6 +370,22 @@ async function downloadImportUrl(url, workdir) {
 }
 
 async function downloadYouTubeImportUrl(url, videoPath, infoPath, cookiesPath) {
+  if (webApiYouTubeApiKey) {
+    try {
+      const item = await downloadYouTubeWithWebApi(url, videoPath);
+      const candidate = normalizeWebApiYouTubeCandidate(item, url);
+      return {
+        videoPath,
+        metadata: candidate.metadata,
+        externalId: sanitizeExternalId(candidate.externalId ?? url),
+        platform: candidate.platform,
+        sourceUrl: candidate.sourceUrl,
+      };
+    } catch (error) {
+      console.warn(`WebAPI YouTube import failed, falling back: ${formatErrorMessage(error)}`);
+    }
+  }
+
   if (saveNowApiKey) {
     try {
       const item = await downloadYouTubeWithSaveNow(url, videoPath);
@@ -417,6 +441,18 @@ async function downloadYouTubeImportUrl(url, videoPath, infoPath, cookiesPath) {
   };
 }
 
+async function downloadYouTubeWithWebApi(url, videoPath) {
+  const item = await runWebApiYouTubeDownloader({
+    apiKey: webApiYouTubeApiKey,
+    authMode: webApiYouTubeAuthMode,
+    endpoint: webApiYouTubeEndpoint,
+    format: webApiYouTubeFormat,
+    sourceUrl: url,
+  });
+  await downloadHttpFile(item.download_url, videoPath);
+  return item;
+}
+
 async function downloadYouTubeWithSaveNow(url, videoPath) {
   const item = await runSaveNowYouTubeDownloader({
     apiKey: saveNowApiKey,
@@ -433,6 +469,17 @@ async function downloadYouTubeWithPreferredFallback({
   cookiesPath,
 }) {
   const failures = [];
+
+  if (webApiYouTubeApiKey) {
+    try {
+      await downloadYouTubeWithWebApi(clipUrl, clipPath);
+      return;
+    } catch (error) {
+      const message = formatErrorMessage(error);
+      failures.push(`WebAPI: ${message}`);
+      console.warn(`WebAPI YouTube download failed, falling back: ${message}`);
+    }
+  }
 
   if (saveNowApiKey) {
     try {
@@ -468,7 +515,7 @@ async function downloadYouTubeWithPreferredFallback({
     failures.push(`yt-dlp: ${formatErrorMessage(error)}`);
     throw new Error(
       "All YouTube download providers failed. "
-      + "SaveNow/Apify did not provide a usable MP4 before yt-dlp fallback was blocked. "
+      + "WebAPI/SaveNow/Apify did not provide a usable MP4 before yt-dlp fallback was blocked. "
       + failures.join(" | "),
     );
   }

@@ -187,14 +187,13 @@ export function AvatarsPage() {
                 </button>
               ))}
             </div>
-            <Button onClick={openCreateAvatar} size="sm">
+            <Link className={buttonVariants({ size: "sm" })} to="/avatars/new">
               <Icon name="plus" />
-              Novo react()
-            </Button>
-            <Link className={buttonVariants({ size: "sm", variant: "outline" })} to="/avatars/new/presenter">
-              <Icon name="film" />
-              Novo presenter
+              Novo avatar
             </Link>
+            <Button onClick={openCreateAvatar} size="sm" variant="outline">
+              Criar rápido
+            </Button>
           </>
         }
         crumbs={[
@@ -215,14 +214,13 @@ export function AvatarsPage() {
             <Link className={buttonVariants({ variant: "outline" })} to="/bulk-editor">
               Ir para editor
             </Link>
-            <Link className={buttonVariants({ variant: "outline" })} to="/avatars/new/presenter">
-              <Icon name="film" />
-              Criar presenter
-            </Link>
-            <Button onClick={openCreateAvatar}>
-              <Icon name="plus" />
-              Criar react()
+            <Button onClick={openCreateAvatar} variant="outline">
+              Criar rápido
             </Button>
+            <Link className={buttonVariants()} to="/avatars/new">
+              <Icon name="plus" />
+              Novo avatar
+            </Link>
           </div>
         </div>
 
@@ -299,8 +297,8 @@ export function AvatarsPage() {
                 <div className="av-bubble lg" style={{ background: "var(--surface-3)", color: "var(--text-muted)" }}>
                   +
                 </div>
-                <span className="text-md">Criar react()</span>
-                <span className="text-sm muted">Novo contexto editorial react()</span>
+                <span className="text-md">Criar rápido</span>
+                <span className="text-sm muted">Novo avatar em poucos campos</span>
               </div>
             </button>
           </div>
@@ -539,6 +537,10 @@ function AvatarCard({
         </Button>
         <Link className={buttonVariants({ size: "sm", variant: "outline" })} to={`/avatars/${avatar.id}`}>
           Abrir hub
+        </Link>
+        <Link className={buttonVariants({ size: "sm" })} to={`/avatars/${avatar.id}/videos/new`}>
+          <Icon name="film" size={14} />
+          Criar vídeo
         </Link>
       </div>
     </article>

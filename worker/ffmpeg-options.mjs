@@ -14,7 +14,11 @@ export function createFfmpegArgs({
     "[1:v]scale=720:832:force_original_aspect_ratio=increase,crop=720:832,setsar=1[bot]",
     "[top][bot]vstack=inputs=2:shortest=1[stack]",
   ].join(";");
-  const filter = withDrawText
+  // Blank overlay text means "no overlay" (automations "none" mode, quick react /
+  // bulk editor without overlay) — skip drawtext entirely so we don't render an
+  // empty white box.
+  const hasOverlayText = String(overlayText ?? "").trim().length > 0;
+  const filter = withDrawText && hasOverlayText
     ? `${stackFilter};[stack]drawtext=text='${escapeDrawText(
       overlayText,
     )}':fontsize=34:fontcolor=black:x=(w-text_w)/2:y=420:box=1:boxcolor=white:boxborderw=18[out]`

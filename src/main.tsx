@@ -15,6 +15,7 @@ import { DashboardPage } from "@/pages/DashboardPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { LibraryPage } from "@/pages/LibraryPage";
 import { PresenterAvatarWizardPage } from "@/pages/PresenterAvatarWizardPage";
+import { ScriptedVideoEditorPage } from "@/pages/ScriptedVideoEditorPage";
 import "@/index.css";
 
 const router = createBrowserRouter([
@@ -30,7 +31,10 @@ const router = createBrowserRouter([
           { path: "/library", element: <LibraryPage /> },
           { path: "/bulk-editor", element: <BulkEditorPage /> },
           { path: "/avatars", element: <AvatarsPage /> },
+          { path: "/avatars/new", element: <PresenterAvatarWizardPage /> },
           { path: "/avatars/new/presenter", element: <PresenterAvatarWizardPage /> },
+          { path: "/avatars/:avatarId/videos/new", element: <ScriptedVideoEditorPage /> },
+          { path: "/avatars/:avatarId/videos/:projectId", element: <ScriptedVideoEditorPage /> },
           { path: "/avatars/:avatarId", element: <AvatarDetailPage /> },
         ],
       },

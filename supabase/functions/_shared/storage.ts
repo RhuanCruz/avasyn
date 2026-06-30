@@ -8,7 +8,8 @@ export type VideoBucket =
   | "generated-reels"
   | "source-videos"
   | "reaction-videos"
-  | "source-thumbnails";
+  | "source-thumbnails"
+  | "presenter-avatar-images";
 
 function isR2Enabled(): boolean {
   return Deno.env.get("STORAGE_BACKEND") === "r2";

@@ -19,7 +19,11 @@ Deno.serve(async (request) => {
     const body = await request.json();
     const sourceVideoId = String(body.sourceVideoId ?? "").trim();
     const reactionId = String(body.reactionId ?? "").trim();
-    const overlayText = normalizeOverlay(String(body.overlayText ?? "Olha isso"));
+    // `noOverlay` lets the caller render without any overlay text (same as the
+    // automations "none" mode). When set, we persist an empty overlay_text and
+    // the worker skips the drawtext box.
+    const noOverlay = body.noOverlay === true;
+    const overlayText = noOverlay ? "" : normalizeOverlay(String(body.overlayText ?? "Olha isso"));
     const caption = normalizeCaption(String(body.caption ?? "React novo no ar."));
 
     if (!sourceVideoId) throw new Error("sourceVideoId is required");

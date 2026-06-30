@@ -7,6 +7,7 @@ const ALLOWED_BUCKETS: Set<string> = new Set([
   "source-videos",
   "reaction-videos",
   "source-thumbnails",
+  "presenter-avatar-images",
 ]);
 
 const TTL_SECONDS = 60 * 60 * 2; // 2h — matches frontend SIGN_TTL_SECONDS

@@ -53,6 +53,40 @@ export type PresenterVideoStatus =
   | "completed"
   | "error";
 
+export type PresenterVisualStatus = "not_started" | "in_review" | "approved" | "error";
+export type PresenterVoiceStatus =
+  | "not_configured"
+  | "public_selected"
+  | "clone_processing"
+  | "clone_ready"
+  | "error";
+export type PresenterImageKind = "option" | "base" | "variation" | "upload";
+export type PresenterImageSource = "hedra" | "upload";
+export type PresenterImageStatus = "draft" | "generated" | "selected" | "approved" | "rejected" | "error";
+export type PresenterImageSetStatus =
+  | "draft"
+  | "generating_options"
+  | "options_generated"
+  | "base_selected"
+  | "generating_variations"
+  | "ready_for_review"
+  | "approved"
+  | "error";
+
+export type HedraModel = {
+  aspectRatios: string[];
+  id: string;
+  maxDurationMs: number | null;
+  name: string;
+  requiresAudioInput: boolean;
+  requiresStartFrame: boolean;
+  resolutions: string[];
+  type: string;
+  creditCost: number | null;
+  unitScale: number | null;
+  billingUnit: string | null;
+};
+
 export type PresenterPersona = {
   id: string;
   user_id: string;
@@ -77,6 +111,19 @@ export type PresenterAvatarProfile = {
   heygen_preview_video_url: string | null;
   default_voice_id: string | null;
   selected_voice_id: string | null;
+  visual_provider: "hedra" | "upload" | "legacy_heygen";
+  video_provider: "hedra" | "legacy_heygen";
+  voice_provider: "hedra" | "legacy_heygen";
+  visual_status: PresenterVisualStatus;
+  voice_status: PresenterVoiceStatus;
+  approved_image_set_id: string | null;
+  approved_base_image_id: string | null;
+  hedra_voice_id: string | null;
+  hedra_image_model_id: string | null;
+  hedra_video_model_id: string | null;
+  hedra_image_asset_id: string | null;
+  hedra_voice_generation_id: string | null;
+  voice_metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 };
@@ -95,20 +142,104 @@ export type PresenterVoiceOption = {
   created_at: string;
 };
 
+export type PresenterImageSet = {
+  id: string;
+  user_id: string;
+  avatar_id: string;
+  base_image_id: string | null;
+  status: PresenterImageSetStatus;
+  prompt_original: string | null;
+  prompt_improved: string | null;
+  image_model_id: string | null;
+  provider: PresenterImageSource;
+  error_message: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PresenterAvatarImage = {
+  id: string;
+  user_id: string;
+  avatar_id: string;
+  image_set_id: string | null;
+  kind: PresenterImageKind;
+  source: PresenterImageSource;
+  status: PresenterImageStatus;
+  prompt: string | null;
+  improved_prompt: string | null;
+  variation_label: string | null;
+  storage_path: string | null;
+  preview_url: string | null;
+  provider: PresenterImageSource;
+  provider_asset_id: string | null;
+  provider_generation_id: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PresenterVideoFormat = "falado" | "roteirizado";
+
 export type PresenterVideoProject = {
   id: string;
   user_id: string;
   avatar_id: string;
   topic: string;
+  format: PresenterVideoFormat;
+  total_duration_s: number;
   research_summary: Record<string, unknown>;
   script: Record<string, unknown>;
   script_text: string | null;
   status: PresenterVideoStatus;
   heygen_video_id: string | null;
+  provider: "hedra" | "legacy_heygen";
+  hedra_generation_id: string | null;
+  hedra_video_asset_id: string | null;
+  image_asset_id: string | null;
+  voice_id: string | null;
+  video_model_id: string | null;
+  render_metadata: Record<string, unknown>;
   video_url: string | null;
   thumbnail_url: string | null;
   duration_s: number | null;
   error_message: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SceneKind = "fala" | "imagem";
+export type SceneContentStatus = "empty" | "draft" | "generating" | "ready" | "error";
+export type SceneClipStatus = "idle" | "queued" | "rendering" | "ready" | "error";
+export type SceneImageSource = "upload" | "library" | "generated";
+export type CameraMovement = "none" | "zoomin" | "zoomout" | "left" | "right" | "up";
+export type SceneImageStyle = "realista" | "cine" | "ilustra" | "3d";
+
+export type PresenterVideoScene = {
+  id: string;
+  user_id: string;
+  avatar_id: string;
+  project_id: string;
+  position: number;
+  kind: SceneKind;
+  content_status: SceneContentStatus;
+  duration_s: number;
+  camera_movement: CameraMovement;
+  image_style: SceneImageStyle;
+  text: string | null;
+  prompt: string | null;
+  improved_prompt: string | null;
+  narration: string | null;
+  image_id: string | null;
+  image_source: SceneImageSource | null;
+  hedra_image_asset_id: string | null;
+  hedra_generation_id: string | null;
+  clip_status: SceneClipStatus;
+  clip_generation_id: string | null;
+  clip_url: string | null;
+  clip_thumbnail_url: string | null;
+  error_message: string | null;
+  metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 };

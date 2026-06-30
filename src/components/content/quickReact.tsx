@@ -42,6 +42,9 @@ export type QuickReactConfig = {
   caption: string;
   overlayText: string;
   reactionId: string;
+  // When true, the reel renders without an overlay text box (mirrors the
+  // automations "none" overlay mode).
+  noOverlay: boolean;
 };
 
 type CreateMediaImportResponse = { importId: string; status: string };
@@ -146,7 +149,8 @@ export function useQuickReact(avatarId: string | null) {
         avatarId,
         sourceVideoId: sourceVideo.id,
         reactionId: config.reactionId,
-        overlayText: config.overlayText,
+        overlayText: config.noOverlay ? "" : config.overlayText,
+        noOverlay: config.noOverlay,
         caption: config.caption,
       });
       render.attachJob(response.job.id);
@@ -196,6 +200,7 @@ export function QuickReactModal({
   const [positionX, setPositionX] = useState(selectedReaction?.position_x ?? 0);
   const [positionY, setPositionY] = useState(selectedReaction?.position_y ?? 0);
   const [overlayText, setOverlayText] = useState(savedConfig?.overlayText ?? QUICK_OVERLAY_DEFAULT);
+  const [noOverlay, setNoOverlay] = useState(savedConfig?.noOverlay ?? false);
   const [caption, setCaption] = useState(savedConfig?.caption ?? QUICK_CAPTION_DEFAULT);
   const [saving, setSaving] = useState(false);
 
@@ -244,7 +249,7 @@ export function QuickReactModal({
             <div className="col" style={{ gap: 14 }}>
               <QuickReactionSplitPreview
                 caption={caption}
-                overlayText={overlayText}
+                overlayText={noOverlay ? "" : overlayText}
                 positionX={positionX}
                 positionY={positionY}
                 reaction={selectedReaction}
@@ -284,10 +289,17 @@ export function QuickReactModal({
                 <span className="text-xs muted">{positionY}</span>
               </label>
 
-              <label className="col text-sm" style={{ gap: 8 }}>
-                Texto da divisão
-                <input className="input" maxLength={32} onChange={(event) => setOverlayText(event.target.value)} value={overlayText} />
+              <label className="flex items-center gap-2 text-sm">
+                <input checked={noOverlay} onChange={(event) => setNoOverlay(event.target.checked)} type="checkbox" />
+                Sem texto de overlay
               </label>
+
+              {!noOverlay ? (
+                <label className="col text-sm" style={{ gap: 8 }}>
+                  Texto da divisão
+                  <input className="input" maxLength={32} onChange={(event) => setOverlayText(event.target.value)} value={overlayText} />
+                </label>
+              ) : null}
 
               <label className="col text-sm" style={{ gap: 8 }}>
                 Legenda
@@ -320,8 +332,9 @@ export function QuickReactModal({
 
       onConfigured({
         caption: caption.trim() || QUICK_CAPTION_DEFAULT,
-        overlayText: normalizeQuickOverlayText(overlayText),
+        overlayText: noOverlay ? "" : normalizeQuickOverlayText(overlayText),
         reactionId,
+        noOverlay,
       });
     } catch (error) {
       toast.error(formatMediaImportError(error instanceof Error ? error.message : null));
@@ -530,15 +543,17 @@ export function readQuickConfig(avatarId: string): QuickReactConfig | null {
     if (!raw) {
       const legacyReactionId = localStorage.getItem(`avasyn:quick-reaction:${avatarId}`);
       return legacyReactionId
-        ? { caption: QUICK_CAPTION_DEFAULT, overlayText: QUICK_OVERLAY_DEFAULT, reactionId: legacyReactionId }
+        ? { caption: QUICK_CAPTION_DEFAULT, overlayText: QUICK_OVERLAY_DEFAULT, reactionId: legacyReactionId, noOverlay: false }
         : null;
     }
     const parsed = JSON.parse(raw) as Partial<QuickReactConfig>;
     if (!parsed.reactionId) return null;
+    const noOverlay = parsed.noOverlay === true;
     return {
       caption: String(parsed.caption ?? QUICK_CAPTION_DEFAULT),
-      overlayText: normalizeQuickOverlayText(parsed.overlayText ?? QUICK_OVERLAY_DEFAULT),
+      overlayText: noOverlay ? "" : normalizeQuickOverlayText(parsed.overlayText ?? QUICK_OVERLAY_DEFAULT),
       reactionId: String(parsed.reactionId),
+      noOverlay,
     };
   } catch {
     return null;
@@ -548,8 +563,9 @@ export function readQuickConfig(avatarId: string): QuickReactConfig | null {
 export function persistQuickConfig(avatarId: string, config: QuickReactConfig) {
   localStorage.setItem(quickConfigStorageKey(avatarId), JSON.stringify({
     caption: config.caption.trim() || QUICK_CAPTION_DEFAULT,
-    overlayText: normalizeQuickOverlayText(config.overlayText),
+    overlayText: config.noOverlay ? "" : normalizeQuickOverlayText(config.overlayText),
     reactionId: config.reactionId,
+    noOverlay: config.noOverlay,
   }));
 }
 

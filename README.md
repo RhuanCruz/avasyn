@@ -10,7 +10,7 @@ MVP interno para gerar e postar Instagram Reels usando Supabase e Zernio.
 - pgmq + pg_cron
 - Zernio API para Instagram
 - OpenAI Responses API para persona/roteiros
-- HeyGen API para avatares presenter, vozes e vídeos
+- Hedra API para imagens, vozes e vídeos presenter
 
 ## Setup
 
@@ -41,8 +41,7 @@ MVP interno para gerar e postar Instagram Reels usando Supabase e Zernio.
      APIFY_TIKTOK_ACTOR_ID=clockworks/tiktok-scraper \
      APIFY_YOUTUBE_DOWNLOADER_ACTOR_ID=epctex/youtube-video-downloader \
      APIFY_YOUTUBE_QUALITY=720 \
-     HEYGEN_API_KEY= \
-     HEYGEN_WEBHOOK_URL= \
+     HEDRA_API_KEY= \
      ZERNIO_API_KEY= \
      ZERNIO_PROFILE_ID= \
      ZERNIO_WEBHOOK_SECRET= \
@@ -60,12 +59,17 @@ MVP interno para gerar e postar Instagram Reels usando Supabase e Zernio.
    supabase functions deploy create-quick-react-job
    supabase functions deploy search-content
    supabase functions deploy structure-presenter-persona
-   supabase functions deploy create-heygen-presenter-avatar
-   supabase functions deploy design-heygen-voice
+   supabase functions deploy list-hedra-models
+   supabase functions deploy list-hedra-voices
+   supabase functions deploy improve-presenter-image-prompt
+   supabase functions deploy generate-presenter-image-options
+   supabase functions deploy sync-presenter-image-options
+   supabase functions deploy upload-presenter-avatar-image
+   supabase functions deploy select-presenter-base-image
+   supabase functions deploy select-hedra-presenter-voice
    supabase functions deploy generate-presenter-script
    supabase functions deploy submit-presenter-video
    supabase functions deploy sync-presenter-video
-   supabase functions deploy heygen-webhook --no-verify-jwt
    supabase functions deploy reel-processor
    supabase functions deploy post-to-zernio
    supabase functions deploy automation-scheduler
@@ -83,6 +87,8 @@ MVP interno para gerar e postar Instagram Reels usando Supabase e Zernio.
    SUPABASE_URL=https://odbuwhhfwxttzbbjpsuh.supabase.co
    SUPABASE_SERVICE_ROLE_KEY=
    VIDEO_WORKER_SECRET=
+   SAVENOW_API_KEY=
+   SAVENOW_FORMAT=720
    APIFY_TOKEN=
    APIFY_TIKTOK_ACTOR_ID=clockworks/tiktok-scraper
    APIFY_YOUTUBE_DOWNLOADER_ACTOR_ID=epctex/youtube-video-downloader
@@ -97,9 +103,12 @@ MVP interno para gerar e postar Instagram Reels usando Supabase e Zernio.
    O worker deve instalar `yt-dlp[default]`, não apenas `yt-dlp`, para incluir
    o suporte local de EJS usado pelo YouTube em alguns vídeos.
 
-   Com `APIFY_TOKEN` configurado, links do YouTube usam o actor
-   `epctex/youtube-video-downloader` antes do fallback `yt-dlp`.
-   Se optar pelo fallback e aparecer `Sign in to confirm you're not a bot`,
+   Para download de YouTube a cascata é: `SAVENOW_API_KEY` (primário) →
+   `APIFY_TOKEN` com o actor `epctex/youtube-video-downloader` (secundário) →
+   `yt-dlp` com cookies (último recurso). Configure `SAVENOW_API_KEY`
+   (https://p.savenow.to) para que o download não dependa de cookies da conta
+   do YouTube — só assim o `yt-dlp` deixa de ser alcançado no fluxo normal.
+   Se mesmo assim cair no fallback e aparecer `Sign in to confirm you're not a bot`,
    exporte cookies do YouTube no formato Netscape cookies.txt, gere base64 e
    salve em `YOUTUBE_COOKIES_BASE64`:
 

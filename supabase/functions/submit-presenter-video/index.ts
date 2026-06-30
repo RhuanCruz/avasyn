@@ -3,8 +3,10 @@ import {
   createServiceClient,
   getAuthenticatedUser,
 } from "../_shared/supabase.ts";
-import { heygenRequest } from "../_shared/heygen.ts";
+import { hedraRequest } from "../_shared/hedra.ts";
 import { validateSpokenScriptText } from "../generate-presenter-script/script-quality.ts";
+
+const DEFAULT_HEDRA_AVATAR_MODEL_ID = "26f0fc66-152b-40ab-abed-76c43df99bc8";
 
 Deno.serve(async (request) => {
   const options = handleOptions(request);
@@ -25,7 +27,7 @@ Deno.serve(async (request) => {
       .single();
     if (projectError || !project) throw new Error("Project not found");
     if (!["script_pending_review", "ready_for_video"].includes(project.status)) {
-      throw new Error("Aprove o roteiro antes de enviar para a HeyGen");
+      throw new Error("Aprove o roteiro antes de enviar para a Hedra");
     }
 
     const { data: profile, error: profileError } = await service
@@ -35,8 +37,12 @@ Deno.serve(async (request) => {
       .eq("user_id", user.id)
       .single();
     if (profileError || !profile) throw new Error("Presenter profile not found");
-    if (!profile.heygen_avatar_id) {
-      throw new Error("Crie o avatar HeyGen antes de gerar vídeo");
+    if (!profile.hedra_image_asset_id) {
+      throw new Error("Aprove uma imagem do avatar antes de gerar vídeo");
+    }
+    const voiceId = profile.hedra_voice_id ?? profile.selected_voice_id ?? profile.default_voice_id;
+    if (!voiceId) {
+      throw new Error("Selecione uma voz Hedra antes de gerar vídeo");
     }
 
     const scriptText = String(body.scriptText ?? project.script_text ?? "").trim();
@@ -46,50 +52,70 @@ Deno.serve(async (request) => {
       throw new Error(scriptProblems.join(" "));
     }
 
-    const voiceId = profile.selected_voice_id ?? profile.default_voice_id;
-    const callbackUrl = Deno.env.get("HEYGEN_WEBHOOK_URL");
-    const response = await heygenRequest<{
-      data?: { video_id?: string; status?: string; output_format?: string };
-    }>("/v3/videos", {
-      idempotencyKey: `${project.id}:presenter-video`,
+    const videoModelId = String(
+      body.videoModelId ?? profile.hedra_video_model_id ?? DEFAULT_HEDRA_AVATAR_MODEL_ID,
+    ).trim();
+    const response = await hedraRequest<Record<string, unknown>>("/generations", {
       body: {
-        type: "avatar",
-        avatar_id: profile.heygen_avatar_id,
-        title: project.topic,
-        aspect_ratio: "9:16",
-        output_format: "mp4",
-        script: scriptText,
-        ...(voiceId ? { voice_id: voiceId } : {}),
-        voice_settings: {
-          locale: "pt-BR",
-          speed: 1,
-          pitch: 0,
-          volume: 1,
+        type: "video",
+        ai_model_id: videoModelId,
+        start_keyframe_id: profile.hedra_image_asset_id,
+        audio_generation: {
+          type: "text_to_speech",
+          voice_id: voiceId,
+          text: scriptText,
+          language: "Portuguese",
+          speed: typeof body.speed === "number" ? body.speed : 1,
+          stability: typeof body.stability === "number" ? body.stability : 0.5,
         },
-        caption: { file_format: "srt" },
-        motion_prompt: "Natural presenter gestures, calm energy, direct camera delivery.",
-        ...(callbackUrl ? { callback_url: callbackUrl, callback_id: project.id } : {}),
+        generated_video_inputs: {
+          text_prompt: String(
+            body.motionPrompt ??
+              "A presenter speaking directly to camera with natural facial expression and subtle gestures.",
+          ),
+          aspect_ratio: "9:16",
+          resolution: String(body.resolution ?? "720p"),
+        },
       },
     });
 
-    const videoId = response.data?.video_id;
-    if (!videoId) {
-      throw new Error("HeyGen did not return video_id");
+    const generationId = readString(response.id);
+    if (!generationId) {
+      throw new Error("Hedra did not return generation id");
     }
 
     const { data: updatedProject, error } = await service
       .from("presenter_video_projects")
       .update({
         script_text: scriptText,
-        status: response.data?.status === "completed" ? "completed" : "submitted",
-        heygen_video_id: videoId,
+        status: "submitted",
+        provider: "hedra",
+        hedra_generation_id: generationId,
+        hedra_video_asset_id: readString(response.asset_id),
+        image_asset_id: profile.hedra_image_asset_id,
+        voice_id: voiceId,
+        video_model_id: videoModelId,
+        render_metadata: {
+          raw_submit_response: response,
+          resolution: String(body.resolution ?? "720p"),
+        },
         error_message: null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", project.id)
       .select("*")
       .single();
-    if (error || !updatedProject) throw error ?? new Error("Failed to save HeyGen video");
+    if (error || !updatedProject) throw error ?? new Error("Failed to save Hedra video");
+
+    await service
+      .from("presenter_avatar_profiles")
+      .update({
+        hedra_video_model_id: videoModelId,
+        video_provider: "hedra",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("avatar_id", project.avatar_id)
+      .eq("user_id", user.id);
 
     return jsonResponse({ project: updatedProject });
   } catch (error) {
@@ -99,3 +125,7 @@ Deno.serve(async (request) => {
     );
   }
 });
+
+function readString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}

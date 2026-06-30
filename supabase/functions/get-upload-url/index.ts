@@ -5,12 +5,16 @@ import { getUploadUrl, type VideoBucket } from "../_shared/storage.ts";
 const ALLOWED_BUCKETS: Set<string> = new Set([
   "source-videos",
   "reaction-videos",
+  "presenter-avatar-images",
 ]);
 
 const ALLOWED_MIME: Set<string> = new Set([
   "video/mp4",
   "video/quicktime",
   "video/webm",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
 ]);
 
 Deno.serve(async (request) => {

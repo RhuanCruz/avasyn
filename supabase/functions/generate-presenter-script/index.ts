@@ -277,7 +277,7 @@ async function repairPresenterScript({
 
 const presenterScriptInstructions = [
   "Você é um roteirista sênior de vídeos curtos em português do Brasil e pesquisador editorial.",
-  "O objetivo é entregar um roteiro pronto para TTS/HeyGen, não um resumo.",
+  "O objetivo é entregar um roteiro pronto para TTS e vídeo presenter na Hedra, não um resumo.",
   "",
   "Processo obrigatório antes de escrever:",
   "1. Use web search para encontrar sinais atuais e fontes reais sobre o tema.",

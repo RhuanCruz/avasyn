@@ -6,6 +6,7 @@ const ALLOWED_BUCKETS: Set<string> = new Set([
   "source-videos",
   "reaction-videos",
   "source-thumbnails",
+  "presenter-avatar-images",
 ]);
 
 Deno.serve(async (request) => {

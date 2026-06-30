@@ -1,6 +1,11 @@
 import { invokeFunction } from "@/lib/api";
 
-type SignedUrlBucket = "generated-reels" | "source-videos" | "reaction-videos" | "source-thumbnails";
+type SignedUrlBucket =
+  | "generated-reels"
+  | "source-videos"
+  | "reaction-videos"
+  | "source-thumbnails"
+  | "presenter-avatar-images";
 
 export async function getStorageSignedUrl(
   bucket: SignedUrlBucket,
@@ -16,7 +21,7 @@ export async function getStorageSignedUrl(
 }
 
 export async function getStorageUploadUrl(
-  bucket: "reaction-videos" | "source-videos",
+  bucket: "reaction-videos" | "source-videos" | "presenter-avatar-images",
   filename: string,
   contentType: string,
 ): Promise<{ path: string; uploadUrl: string }> {
@@ -24,7 +29,7 @@ export async function getStorageUploadUrl(
 }
 
 export async function deleteStorageObject(
-  bucket: "reaction-videos" | "source-videos" | "source-thumbnails",
+  bucket: "reaction-videos" | "source-videos" | "source-thumbnails" | "presenter-avatar-images",
   paths: string | string[],
 ): Promise<void> {
   const normalizedPaths = Array.isArray(paths) ? paths : [paths];
