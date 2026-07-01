@@ -8,7 +8,7 @@ import {
 } from "./hedra";
 
 describe("Hedra shared helpers", () => {
-  test("normalizes image and avatar-capable video models", () => {
+  test("normalizes image and all video models (talking + motion)", () => {
     const models = normalizeHedraModels([
       {
         id: "image-model",
@@ -26,6 +26,13 @@ describe("Hedra shared helpers", () => {
         max_duration_ms: 600000,
       },
       {
+        id: "motion-model",
+        name: "Kling Motion",
+        type: "video",
+        requires_start_frame: true,
+        requires_audio_input: false,
+      },
+      {
         id: "text-model",
         name: "Text Model",
         type: "text",
@@ -33,8 +40,11 @@ describe("Hedra shared helpers", () => {
     ]);
 
     expect(models.image.map((model) => model.id)).toEqual(["image-model"]);
-    expect(models.video.map((model) => model.id)).toEqual(["video-model"]);
+    // Both the audio-driven avatar model and the motion model are now returned;
+    // the client categorizes them by requiresAudioInput / requiresStartFrame.
+    expect(models.video.map((model) => model.id)).toEqual(["video-model", "motion-model"]);
     expect(models.video[0].maxDurationMs).toBe(600000);
+    expect(models.video[1].requiresAudioInput).toBe(false);
   });
 
   test("normalizes voices with preview and labels", () => {

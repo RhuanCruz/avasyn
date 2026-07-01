@@ -116,13 +116,12 @@ export function normalizeHedraModels(rawModels: unknown) {
     ? rawModels.map(normalizeModel).filter((model): model is HedraModel => Boolean(model))
     : [];
 
+  // Return every video model (not just the audio-driven avatar ones). The client
+  // splits them by capability: lip-sync/talking = requiresAudioInput (used by the
+  // "fala" mode), motion/image-to-video = requiresStartFrame (used by "imagem").
   return {
     image: models.filter((model) => model.type === "image"),
-    video: models.filter((model) =>
-      model.type === "video" &&
-      model.requiresStartFrame &&
-      model.requiresAudioInput
-    ),
+    video: models.filter((model) => model.type === "video"),
   };
 }
 

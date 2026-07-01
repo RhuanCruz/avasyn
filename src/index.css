@@ -1588,26 +1588,34 @@ video {
   position: absolute;
   inset: 0;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 10px;
 }
 .sv-scene-generating {
+  flex-direction: column;
   background: linear-gradient(110deg, var(--surface) 25%, var(--surface-3) 50%, var(--surface) 75%);
   background-size: 200% 100%;
   animation: sv-shim 1.2s linear infinite;
   color: var(--text-2);
+}
+.sv-scene-empty {
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px;
 }
 .sv-chip {
   font-size: 12px;
   font-weight: 600;
   background: var(--surface-3);
   border: 1px solid var(--border);
-  padding: 8px 18px;
+  padding: 7px 13px;
   border-radius: 8px;
   color: var(--text);
+  cursor: pointer;
+  transition: border-color 140ms, background 140ms;
 }
+.sv-chip:hover { border-color: var(--accent); background: var(--surface); }
 
 @keyframes sv-shim {
   0% { background-position: -200% 0; }
@@ -1706,6 +1714,34 @@ video {
   display: flex;
   flex-direction: column;
   gap: 18px;
+}
+.sv-inspector-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 10px 18px 0;
+}
+.sv-inspector-tab {
+  flex: 1;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 10px;
+  border-radius: 8px 8px 0 0;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  background: var(--surface-2);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.sv-inspector-tab.active { background: var(--bg-elev); color: var(--text); }
+.sv-chat-soon {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 18px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  color: var(--accent-hover);
 }
 
 .sv-field { display: flex; flex-direction: column; }

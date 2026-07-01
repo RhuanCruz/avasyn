@@ -199,6 +199,7 @@ export type PresenterVideoProject = {
   image_asset_id: string | null;
   voice_id: string | null;
   video_model_id: string | null;
+  motion_model_id: string | null;
   render_metadata: Record<string, unknown>;
   video_url: string | null;
   thumbnail_url: string | null;
@@ -230,6 +231,9 @@ export type PresenterVideoScene = {
   prompt: string | null;
   improved_prompt: string | null;
   narration: string | null;
+  // Free-form direction for the person's action / camera / framing, used in both
+  // modes and combined with the camera_movement preset when rendering the clip.
+  action_prompt: string | null;
   image_id: string | null;
   image_source: SceneImageSource | null;
   hedra_image_asset_id: string | null;

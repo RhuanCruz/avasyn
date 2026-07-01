@@ -151,7 +151,7 @@ export function BulkEditorPage() {
                 onClick={() => navigate(selectedAvatarId ? `/avatars/${selectedAvatarId}/videos/new` : "/avatars")}
                 type="button"
               >
-                Vídeo roteirizado
+                Talking Head
               </button>
               <button className="active" type="button">React</button>
             </div>

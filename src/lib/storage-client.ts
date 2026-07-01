@@ -28,6 +28,25 @@ export async function getStorageUploadUrl(
   return invokeFunction("get-upload-url", { bucket, filename, contentType });
 }
 
+// Force a browser download of a remote URL. Fetches into a blob so the file is
+// saved (a cross-origin signed URL on a plain <a download> would just navigate).
+export async function downloadUrlAsFile(url: string, filename: string): Promise<void> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("Falha ao baixar o arquivo");
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
 export async function deleteStorageObject(
   bucket: "reaction-videos" | "source-videos" | "source-thumbnails" | "presenter-avatar-images",
   paths: string | string[],

@@ -6,7 +6,8 @@ import { useAuth } from "@/auth/AuthContext";
 import { Icon } from "@/components/operator-ui";
 import { invokeFunction } from "@/lib/api";
 import { modelLabelWithCost } from "@/lib/hedra-utils";
-import { getStorageSignedUrl, getStorageUploadUrl } from "@/lib/storage-client";
+import { useInView, useSignedUrl } from "@/lib/media-hooks";
+import { downloadUrlAsFile, getStorageSignedUrl, getStorageUploadUrl } from "@/lib/storage-client";
 import { supabase } from "@/lib/supabase";
 import type {
   Avatar,
@@ -29,6 +30,7 @@ type VoiceOpt = {
   previewAudioUrl: string | null;
 };
 type ImageTab = "upload" | "biblioteca" | "gerar";
+type SidebarTab = "forms" | "chat";
 
 const MOVEMENTS: { key: CameraMovement; label: string }[] = [
   { key: "none", label: "Estático" },
@@ -89,6 +91,7 @@ export function ScriptedVideoEditorPage() {
   const [voices, setVoices] = useState<VoiceOpt[]>([]);
   const [imageModelId, setImageModelId] = useState("");
   const [imageTab, setImageTab] = useState<ImageTab>("gerar");
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>("forms");
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [voicePickerOpen, setVoicePickerOpen] = useState(false);
   const [uploadingScene, setUploadingScene] = useState(false);
@@ -104,6 +107,8 @@ export function ScriptedVideoEditorPage() {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const videoFileRef = useRef<HTMLInputElement | null>(null);
   const reorderFromRef = useRef<number | null>(null);
+  const promptRef = useRef<HTMLTextAreaElement | null>(null);
+  const [pendingPromptFocus, setPendingPromptFocus] = useState<string | null>(null);
 
   const sel = scenes.find((s) => s.id === selId) ?? scenes[0] ?? null;
   const total = useMemo(() => scenes.reduce((a, b) => a + b.duration_s, 0), [scenes]);
@@ -111,7 +116,11 @@ export function ScriptedVideoEditorPage() {
   const allClipsReady = scenes.length > 0 && clipsReady === scenes.length;
   const voiceId = project?.voice_id ?? profile?.hedra_voice_id ?? "";
   const videoModelId = project?.video_model_id ?? profile?.hedra_video_model_id ?? "";
+  const motionModelId = project?.motion_model_id ?? "";
   const selVoice = voices.find((v) => v.voiceId === voiceId) ?? null;
+  // Lip-sync (fala) models need audio; motion (imagem) models animate a start frame.
+  const talkingModels = useMemo(() => videoModels.filter((m) => m.requiresAudioInput), [videoModels]);
+  const motionModels = useMemo(() => videoModels.filter((m) => m.requiresStartFrame), [videoModels]);
 
   // ── Load / bootstrap ──────────────────────────────────────────────
   useEffect(() => {
@@ -170,6 +179,39 @@ export function ScriptedVideoEditorPage() {
     setImageTab(sel.image_source === "upload" ? "upload" : sel.image_source === "library" ? "biblioteca" : "gerar");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selId]);
+
+  // Focus the generation prompt once the target scene is selected and the tab renders.
+  useEffect(() => {
+    if (pendingPromptFocus && pendingPromptFocus === selId && imageTab === "gerar" && promptRef.current) {
+      promptRef.current.focus();
+      setPendingPromptFocus(null);
+    }
+  }, [pendingPromptFocus, selId, imageTab]);
+
+  // Empty-card actions: select the scene, switch to the Forms tab, then act.
+  function emptyCardAction(sceneId: string, action: "image" | "video" | "library" | "prompt") {
+    setSelId(sceneId);
+    setSidebarTab("forms");
+    if (action === "image") { setImageTab("upload"); requestAnimationFrame(() => fileRef.current?.click()); }
+    else if (action === "video") { requestAnimationFrame(() => videoFileRef.current?.click()); }
+    else if (action === "library") { setImageTab("biblioteca"); setLibraryOpen(true); }
+    else { setImageTab("gerar"); setPendingPromptFocus(sceneId); }
+  }
+
+  async function downloadScene(sceneId: string) {
+    const scene = scenes.find((s) => s.id === sceneId);
+    if (!scene || scene.clip_status !== "ready") return;
+    const index = scenes.findIndex((s) => s.id === sceneId) + 1;
+    try {
+      let url = scene.clip_url;
+      const clipPath = (scene.metadata?.clip_path as string | undefined) ?? null;
+      if (clipPath) url = await getStorageSignedUrl("source-videos", clipPath);
+      if (!url) throw new Error("Clipe da cena indisponível");
+      await downloadUrlAsFile(url, `cena-${index}.mp4`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao baixar a cena");
+    }
+  }
 
   async function loadCatalogs(prof: PresenterAvatarProfile | null) {
     try {
@@ -555,7 +597,7 @@ export function ScriptedVideoEditorPage() {
           <span className="current">Novo vídeo</span>
         </div>
         <div className="sv-format-toggle">
-          <button className="active" type="button">Vídeo roteirizado</button>
+          <button className="active" type="button">Talking Head</button>
           <button onClick={() => navigate(`/bulk-editor?avatarId=${avatarId}`)} type="button">React</button>
         </div>
         <div className="sv-header-right">
@@ -565,26 +607,6 @@ export function ScriptedVideoEditorPage() {
           </button>
         </div>
       </header>
-
-      {/* Project settings */}
-      <div className="sv-subbar">
-        <div className="sv-subbar-field">
-          <span>Voz do vídeo</span>
-          <button className="sv-select sv-voice-trigger" onClick={() => setVoicePickerOpen(true)} type="button">
-            <span>{selVoice ? `${selVoice.name}${selVoice.language ? ` · ${selVoice.language}` : ""}` : "Selecionar voz"}</span>
-            <Icon name="chevron-down" size={14} />
-          </button>
-        </div>
-        <label className="sv-subbar-field">
-          <span>Modelo de vídeo (fala)</span>
-          <select className="sv-select" onChange={(e) => void persistProject({ video_model_id: e.target.value })} value={videoModelId}>
-            <option value="">Modelo padrão (avatar)</option>
-            {videoModels.map((m) => (
-              <option key={m.id} value={m.id}>{modelLabelWithCost(m)}</option>
-            ))}
-          </select>
-        </label>
-      </div>
 
       <div className="sv-body">
         {/* Main: scenes + timeline */}
@@ -621,9 +643,10 @@ export function ScriptedVideoEditorPage() {
                     </div>
                   ) : isEmpty ? (
                     <div className="sv-scene-empty">
-                      <span className="sv-chip">Upload</span>
-                      <span className="muted text-xs">ou</span>
-                      <span className="sv-chip">Prompt</span>
+                      <button className="sv-chip" onClick={(e) => { e.stopPropagation(); emptyCardAction(scene.id, "image"); }} type="button">Imagem</button>
+                      <button className="sv-chip" onClick={(e) => { e.stopPropagation(); emptyCardAction(scene.id, "video"); }} type="button">Vídeo</button>
+                      <button className="sv-chip" onClick={(e) => { e.stopPropagation(); emptyCardAction(scene.id, "library"); }} type="button">Biblioteca</button>
+                      <button className="sv-chip" onClick={(e) => { e.stopPropagation(); emptyCardAction(scene.id, "prompt"); }} type="button">Prompt</button>
                     </div>
                   ) : (
                     <>
@@ -633,7 +656,10 @@ export function ScriptedVideoEditorPage() {
                           controls
                           onClick={(e) => e.stopPropagation()}
                           playsInline
-                          src={scene.clip_url}
+                          poster={scene.clip_thumbnail_url ?? undefined}
+                          preload="metadata"
+                          // Seek to a frame so a poster shows instead of a black box.
+                          src={`${scene.clip_url}#t=0.1`}
                         />
                       ) : preview ? (
                         <img alt="" className="sv-scene-img" src={preview} />
@@ -705,7 +731,32 @@ export function ScriptedVideoEditorPage() {
                 <div className="muted text-sm">{KIND_LABEL[sel.kind]} · {sel.duration_s}s</div>
               </div>
 
+              <div className="sv-inspector-tabs">
+                <button className={`sv-inspector-tab${sidebarTab === "forms" ? " active" : ""}`} onClick={() => setSidebarTab("forms")} type="button">Forms</button>
+                <button className={`sv-inspector-tab${sidebarTab === "chat" ? " active" : ""}`} onClick={() => setSidebarTab("chat")} type="button">Chat</button>
+              </div>
+
+              {sidebarTab === "chat" ? (
+                <div className="sv-inspector-body">
+                  <div className="sv-chat-soon">
+                    <Icon name="reaction" size={22} />
+                    <div className="text-md" style={{ fontWeight: 700, marginTop: 8 }}>Modo agente (em breve)</div>
+                    <p className="muted text-sm" style={{ marginTop: 6 }}>
+                      Em breve você poderá gerar e editar cenas conversando com um agente que conhece a persona
+                      do avatar, as imagens base e os roteiros salvos. Use "@" para fixar uma cena ou roteiro no contexto.
+                    </p>
+                  </div>
+                </div>
+              ) : (
               <div className="sv-inspector-body">
+                <div className="sv-field">
+                  <div className="sv-field-label">Voz do vídeo</div>
+                  <button className="sv-select sv-voice-trigger sv-full" onClick={() => setVoicePickerOpen(true)} type="button">
+                    <span>{selVoice ? `${selVoice.name}${selVoice.language ? ` · ${selVoice.language}` : ""}` : "Selecionar voz"}</span>
+                    <Icon name="chevron-down" size={14} />
+                  </button>
+                </div>
+
                 <div className="sv-field">
                   <div className="sv-field-label">Tipo de conteúdo</div>
                   <div className="sv-type-row">
@@ -779,6 +830,7 @@ export function ScriptedVideoEditorPage() {
                         key={`prompt-${sel.id}`}
                         onBlur={(e) => void persistScene(sel.id, { prompt: e.target.value })}
                         placeholder={sel.kind === "fala" ? "Descreva o avatar nesta cena…" : "Descreva a imagem desta cena…"}
+                        ref={promptRef}
                         rows={3}
                       />
                       <select className="sv-select sv-full" onChange={(e) => setImageModelId(e.target.value)} value={imageModelId}>
@@ -814,23 +866,36 @@ export function ScriptedVideoEditorPage() {
                   ) : null}
                 </div>
 
-                {sel.kind === "imagem" ? (
-                  <div className="sv-field">
-                    <div className="sv-field-label">Movimento de câmera</div>
-                    <div className="sv-move-grid">
-                      {MOVEMENTS.map((m) => (
-                        <button
-                          className={`sv-move${sel.camera_movement === m.key ? " active" : ""}`}
-                          key={m.key}
-                          onClick={() => void persistScene(sel.id, { camera_movement: m.key })}
-                          type="button"
-                        >
-                          <span className="text-xs" style={{ fontWeight: 600 }}>{m.label}</span>
-                        </button>
-                      ))}
-                    </div>
+                <div className="sv-field">
+                  <div className="sv-field-label">Movimento de câmera</div>
+                  <div className="sv-move-grid">
+                    {MOVEMENTS.map((m) => (
+                      <button
+                        className={`sv-move${sel.camera_movement === m.key ? " active" : ""}`}
+                        key={m.key}
+                        onClick={() => void persistScene(sel.id, { camera_movement: m.key })}
+                        type="button"
+                      >
+                        <span className="text-xs" style={{ fontWeight: 600 }}>{m.label}</span>
+                      </button>
+                    ))}
                   </div>
-                ) : null}
+                </div>
+
+                <div className="sv-field">
+                  <div className="sv-field-label">Ação / câmera (prompt livre)</div>
+                  <textarea
+                    className="sv-textarea"
+                    defaultValue={sel.action_prompt ?? ""}
+                    key={`action-${sel.id}`}
+                    onBlur={(e) => void persistScene(sel.id, { action_prompt: e.target.value })}
+                    placeholder={sel.kind === "fala"
+                      ? "Ex: gesticula com as mãos, olha para a câmera, fundo de escritório, plano médio…"
+                      : "Ex: câmera aproxima devagar, folhas balançam, luz do fim de tarde…"}
+                    rows={3}
+                  />
+                  <p className="text-xs muted">Direção livre da ação da pessoa, enquadramento e câmera. Combina com o preset acima.</p>
+                </div>
 
                 <div className="sv-field">
                   <div className="sv-field-row">
@@ -888,9 +953,20 @@ export function ScriptedVideoEditorPage() {
                   {sel.clip_status === "ready" ? (
                     <p className="text-xs muted" style={{ marginBottom: 8 }}>Pronto — toca no card da cena.</p>
                   ) : null}
+                  <select
+                    className="sv-select sv-full"
+                    onChange={(e) => void persistProject(sel.kind === "fala" ? { video_model_id: e.target.value } : { motion_model_id: e.target.value })}
+                    style={{ marginBottom: 8 }}
+                    value={sel.kind === "fala" ? videoModelId : motionModelId}
+                  >
+                    <option value="">{sel.kind === "fala" ? "Modelo de fala (lip-sync)" : "Modelo de movimento"}</option>
+                    {(sel.kind === "fala" ? talkingModels : motionModels).map((m) => (
+                      <option key={m.id} value={m.id}>{modelLabelWithCost(m)}</option>
+                    ))}
+                  </select>
                   <button
                     className="sv-btn-primary sv-full"
-                    disabled={!sel.hedra_image_asset_id || !voiceId || sel.clip_status === "rendering"}
+                    disabled={!sel.hedra_image_asset_id || (sel.kind === "fala" && !voiceId) || sel.clip_status === "rendering"}
                     onClick={() => void renderClip(sel.id)}
                     type="button"
                   >
@@ -914,6 +990,7 @@ export function ScriptedVideoEditorPage() {
                   ) : null}
                 </div>
               </div>
+              )}
             </>
           ) : null}
         </aside>
@@ -940,6 +1017,14 @@ export function ScriptedVideoEditorPage() {
             onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }}
           />
           <div className="sv-ctx-menu" style={{ top: ctxMenu.y, left: ctxMenu.x }}>
+            <button
+              className="sv-ctx-item"
+              disabled={scenes.find((s) => s.id === ctxMenu.sceneId)?.clip_status !== "ready"}
+              onClick={() => { void downloadScene(ctxMenu.sceneId); setCtxMenu(null); }}
+              type="button"
+            >
+              <Icon name="download" size={13} /> Baixar cena
+            </button>
             <button
               className="sv-ctx-item danger"
               disabled={scenes.length <= 1}
@@ -1121,13 +1206,33 @@ function LibraryImagePicker({
         ) : (
           <div className="sv-lib-grid">
             {images.map((img) => (
-              <button className="sv-lib-item" key={img.id} onClick={() => onPick(img)} type="button">
-                {img.preview_url ? <img alt="" src={img.preview_url} /> : <div className="sv-lib-empty"><Icon name="image" size={20} /></div>}
-              </button>
+              <LibraryImageThumb image={img} key={img.id} onPick={onPick} />
             ))}
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+// Lazy-loads each thumbnail: only signs/fetches once near the viewport, prefers a
+// freshly re-signed URL from the storage path (preview_url expires ~2h), and falls
+// back to the stored preview_url.
+function LibraryImageThumb({
+  image,
+  onPick,
+}: {
+  image: PresenterAvatarImage;
+  onPick: (image: PresenterAvatarImage) => void;
+}) {
+  const { ref, inView } = useInView<HTMLButtonElement>("200px");
+  const signed = useSignedUrl("presenter-avatar-images", image.storage_path, inView && Boolean(image.storage_path));
+  const src = signed ?? (inView ? image.preview_url : null);
+  return (
+    <button className="sv-lib-item" onClick={() => onPick(image)} ref={ref} type="button">
+      {src
+        ? <img alt="" decoding="async" loading="lazy" src={src} />
+        : <div className="sv-lib-empty"><Icon name="image" size={20} /></div>}
+    </button>
   );
 }

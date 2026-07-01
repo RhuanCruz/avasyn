@@ -56,7 +56,7 @@ Deno.serve(async (request) => {
 
     const { data: project } = await service
       .from("presenter_video_projects")
-      .select("voice_id, video_model_id")
+      .select("voice_id, video_model_id, motion_model_id")
       .eq("id", scene.project_id)
       .eq("user_id", user.id)
       .maybeSingle();
@@ -67,12 +67,6 @@ Deno.serve(async (request) => {
       .eq("user_id", user.id)
       .maybeSingle();
 
-    const voiceId = readString(project?.voice_id) ??
-      readString(profile?.hedra_voice_id) ??
-      readString(profile?.selected_voice_id) ??
-      readString(profile?.default_voice_id);
-    if (!voiceId) throw new Error("Selecione uma voz antes de gerar o vídeo");
-
     // Resolve a real video model from the live catalog.
     let catalog: NormModel[] = [];
     try {
@@ -81,55 +75,78 @@ Deno.serve(async (request) => {
     } catch (_e) {
       catalog = [];
     }
-    const avatarModels = catalog.filter((m) =>
+    // Talking = audio-driven lip-sync (fala); motion = can animate a start frame (imagem).
+    const talkingModels = catalog.filter((m) =>
       m.type === "video" && m.requiresAudioInput && m.requiresStartFrame
     );
+    const motionModels = catalog.filter((m) => m.type === "video" && m.requiresStartFrame);
     let chosen: NormModel | undefined;
     if (scene.kind === "fala") {
       const wantId = readString(project?.video_model_id) ?? readString(profile?.hedra_video_model_id);
-      chosen = avatarModels.find((m) => m.id === wantId) ?? avatarModels[0];
+      chosen = talkingModels.find((m) => m.id === wantId) ?? talkingModels[0];
     } else {
-      chosen = catalog.find((m) => /omnia/i.test(m.name) && m.type === "video") ?? avatarModels[0];
+      const wantId = readString(project?.motion_model_id);
+      chosen = motionModels.find((m) => m.id === wantId) ??
+        motionModels.find((m) => /omnia/i.test(m.name)) ??
+        motionModels[0] ??
+        talkingModels[0];
     }
     const aiModelId = chosen?.id ?? FALLBACK_AVATAR_MODEL_ID;
+
+    // Audio (lip-sync/narration) only when the chosen model supports it. Fala always
+    // needs it; a motion model without audio input (e.g. Kling/Veo) animates silently
+    // and the narration is layered in the future concatenation phase.
+    const useAudio = scene.kind === "fala" || chosen?.requiresAudioInput === true;
+    const voiceId = readString(project?.voice_id) ??
+      readString(profile?.hedra_voice_id) ??
+      readString(profile?.selected_voice_id) ??
+      readString(profile?.default_voice_id);
+    if (useAudio && !voiceId) throw new Error("Selecione uma voz antes de gerar o vídeo");
     const resolution = pickResolution(chosen?.resolutions ?? []);
     const aspectRatio = (chosen?.aspectRatios ?? []).includes("9:16")
       ? "9:16"
       : ((chosen?.aspectRatios ?? [])[0] ?? "9:16");
 
-    // Step 1 — generate the speech audio standalone. Inline audio_generation is
-    // rejected by Hedra ("model missing"), but a standalone text_to_speech works.
-    const tts = await hedraRequest<Record<string, unknown>>("/generations", {
-      body: {
-        type: "text_to_speech",
-        voice_id: voiceId,
-        text: speech,
-        language: "Portuguese",
-        speed: 1,
-        stability: 0.5,
-      },
-    });
-    const ttsGenId = readString(tts.id);
-    let audioAssetId = readString(tts.asset_id);
-    for (let i = 0; i < 30 && ttsGenId; i += 1) {
-      const st = await hedraRequest<Record<string, unknown>>(
-        `/generations/${encodeURIComponent(ttsGenId)}/status`,
-      );
-      audioAssetId = readString(st.asset_id) ?? audioAssetId;
-      const mapped = mapHedraGenerationStatus(readString(st.status));
-      if (mapped === "completed") break;
-      if (mapped === "error") {
-        throw new Error(readString(st.error_message) ?? "Falha ao gerar o áudio da fala");
+    // Step 1 — generate the speech audio standalone (when this model uses audio).
+    // Inline audio_generation is rejected by Hedra ("model missing"), but a
+    // standalone text_to_speech works.
+    let audioAssetId: string | null = null;
+    if (useAudio) {
+      const tts = await hedraRequest<Record<string, unknown>>("/generations", {
+        body: {
+          type: "text_to_speech",
+          voice_id: voiceId,
+          text: speech,
+          language: "Portuguese",
+          speed: 1,
+          stability: 0.5,
+        },
+      });
+      const ttsGenId = readString(tts.id);
+      audioAssetId = readString(tts.asset_id);
+      for (let i = 0; i < 30 && ttsGenId; i += 1) {
+        const st = await hedraRequest<Record<string, unknown>>(
+          `/generations/${encodeURIComponent(ttsGenId)}/status`,
+        );
+        audioAssetId = readString(st.asset_id) ?? audioAssetId;
+        const mapped = mapHedraGenerationStatus(readString(st.status));
+        if (mapped === "completed") break;
+        if (mapped === "error") {
+          throw new Error(readString(st.error_message) ?? "Falha ao gerar o áudio da fala");
+        }
+        await sleep(2500);
       }
-      await sleep(2500);
+      if (!audioAssetId) throw new Error("Áudio da fala não foi gerado");
     }
-    if (!audioAssetId) throw new Error("Áudio da fala não foi gerado");
 
-    // Step 2 — generate the video using the ready audio asset.
+    // Step 2 — generate the video. The text_prompt combines the base phrasing for
+    // the kind, the free-form action/camera prompt, and the camera_movement preset.
     const movementPrompt = MOVEMENT_PROMPT[String(scene.camera_movement)] ?? MOVEMENT_PROMPT.none;
-    const motionPrompt = scene.kind === "fala"
-      ? `A presenter speaking directly to camera with natural facial expression and subtle gestures, ${movementPrompt}.`
-      : `${movementPrompt}, subtle natural motion.`;
+    const actionPrompt = readString(scene.action_prompt);
+    const base = scene.kind === "fala"
+      ? "A presenter speaking directly to camera with natural facial expression and subtle gestures"
+      : "Subtle natural motion";
+    const motionPrompt = [base, actionPrompt, movementPrompt].filter(Boolean).join(", ") + ".";
     const generatedVideoInputs: Record<string, unknown> = {
       text_prompt: motionPrompt,
       aspect_ratio: aspectRatio,
@@ -146,7 +163,7 @@ Deno.serve(async (request) => {
         type: "video",
         ai_model_id: aiModelId,
         start_keyframe_id: scene.hedra_image_asset_id,
-        audio_id: audioAssetId,
+        ...(audioAssetId ? { audio_id: audioAssetId } : {}),
         generated_video_inputs: generatedVideoInputs,
       },
     });

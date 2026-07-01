@@ -433,7 +433,7 @@ export function PresenterAvatarWizardPage() {
           <div>
             <h1 className="page-title">Novo avatar</h1>
             <p className="page-subtitle">
-            Configure identidade, persona, imagem e voz — depois produza vídeos falados ou roteirizados.
+            Configure identidade, persona, imagem e voz — depois produza vídeos Talking Head ou reações.
             </p>
           </div>
           {avatar ? (
@@ -459,7 +459,7 @@ export function PresenterAvatarWizardPage() {
         {avatar ? (
           <div className="card card-pad mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="text-md">Vídeo roteirizado (multi-cena)</div>
+              <div className="text-md">Talking Head (multi-cena)</div>
               <p className="text-sm muted">
                 Monte um vídeo com várias cenas — falas do avatar e imagens narradas.
               </p>
