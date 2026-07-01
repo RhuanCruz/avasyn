@@ -75,43 +75,58 @@ Deno.serve(async (request) => {
     } catch (_e) {
       catalog = [];
     }
-    // Talking = audio-driven lip-sync (fala); motion = can animate a start frame (imagem).
+    // Talking = audio-driven lip-sync (fala). Motion (narração) = pure image-to-video
+    // that animates a start frame WITHOUT audio input (Kling/Seedance/Veo) — we add the
+    // narration voice-over ourselves via the worker mux.
     const talkingModels = catalog.filter((m) =>
       m.type === "video" && m.requiresAudioInput && m.requiresStartFrame
     );
-    const motionModels = catalog.filter((m) => m.type === "video" && m.requiresStartFrame);
+    const motionModels = catalog.filter((m) =>
+      m.type === "video" && m.requiresStartFrame && !m.requiresAudioInput
+    );
+    const isNarration = scene.kind === "imagem";
     let chosen: NormModel | undefined;
-    if (scene.kind === "fala") {
+    if (!isNarration) {
       const wantId = readString(project?.video_model_id) ?? readString(profile?.hedra_video_model_id);
       chosen = talkingModels.find((m) => m.id === wantId) ?? talkingModels[0];
     } else {
       const wantId = readString(project?.motion_model_id);
       chosen = motionModels.find((m) => m.id === wantId) ??
-        motionModels.find((m) => /omnia/i.test(m.name)) ??
         motionModels[0] ??
         talkingModels[0];
     }
     const aiModelId = chosen?.id ?? FALLBACK_AVATAR_MODEL_ID;
 
-    // Audio (lip-sync/narration) only when the chosen model supports it. Fala always
-    // needs it; a motion model without audio input (e.g. Kling/Veo) animates silently
-    // and the narration is layered in the future concatenation phase.
-    const useAudio = scene.kind === "fala" || chosen?.requiresAudioInput === true;
-    const voiceId = readString(project?.voice_id) ??
-      readString(profile?.hedra_voice_id) ??
-      readString(profile?.selected_voice_id) ??
-      readString(profile?.default_voice_id);
-    if (useAudio && !voiceId) throw new Error("Selecione uma voz antes de gerar o vídeo");
+    // Fala uses a project-level voice; narração uses the per-scene narration voice
+    // (falling back to the project voice). Both need a voice — fala for lip-sync,
+    // narração for the voice-over that the worker muxes onto the silent motion clip.
+    const voiceId = isNarration
+      ? (readString(scene.narration_voice_id) ??
+        readString(project?.voice_id) ??
+        readString(profile?.hedra_voice_id) ??
+        readString(profile?.selected_voice_id) ??
+        readString(profile?.default_voice_id))
+      : (readString(project?.voice_id) ??
+        readString(profile?.hedra_voice_id) ??
+        readString(profile?.selected_voice_id) ??
+        readString(profile?.default_voice_id));
+    if (!voiceId) {
+      throw new Error(isNarration ? "Selecione a voz da narração" : "Selecione uma voz antes de gerar o vídeo");
+    }
+    // Embed audio into the Hedra generation only for audio-driven models (fala lip-sync).
+    // Otherwise the motion clip is silent and we mux the narration in the worker.
+    const embedAudio = chosen?.requiresAudioInput === true;
+    const needsMux = !embedAudio;
     const resolution = pickResolution(chosen?.resolutions ?? []);
     const aspectRatio = (chosen?.aspectRatios ?? []).includes("9:16")
       ? "9:16"
       : ((chosen?.aspectRatios ?? [])[0] ?? "9:16");
 
-    // Step 1 — generate the speech audio standalone (when this model uses audio).
-    // Inline audio_generation is rejected by Hedra ("model missing"), but a
-    // standalone text_to_speech works.
+    // Step 1 — generate the speech/narration audio standalone. Inline audio_generation
+    // is rejected by Hedra ("model missing"), but a standalone text_to_speech works.
+    // Both modes generate it: fala embeds it (lip-sync); narração muxes it in the worker.
     let audioAssetId: string | null = null;
-    if (useAudio) {
+    {
       const tts = await hedraRequest<Record<string, unknown>>("/generations", {
         body: {
           type: "text_to_speech",
@@ -132,11 +147,11 @@ Deno.serve(async (request) => {
         const mapped = mapHedraGenerationStatus(readString(st.status));
         if (mapped === "completed") break;
         if (mapped === "error") {
-          throw new Error(readString(st.error_message) ?? "Falha ao gerar o áudio da fala");
+          throw new Error(readString(st.error_message) ?? "Falha ao gerar o áudio");
         }
         await sleep(2500);
       }
-      if (!audioAssetId) throw new Error("Áudio da fala não foi gerado");
+      if (!audioAssetId) throw new Error("Áudio não foi gerado");
     }
 
     // Step 2 — generate the video. The text_prompt combines the base phrasing for
@@ -163,7 +178,7 @@ Deno.serve(async (request) => {
         type: "video",
         ai_model_id: aiModelId,
         start_keyframe_id: scene.hedra_image_asset_id,
-        ...(audioAssetId ? { audio_id: audioAssetId } : {}),
+        ...(embedAudio && audioAssetId ? { audio_id: audioAssetId } : {}),
         generated_video_inputs: generatedVideoInputs,
       },
     });
@@ -183,6 +198,13 @@ Deno.serve(async (request) => {
           resolution,
           aspect_ratio: aspectRatio,
           audio_asset_id: audioAssetId,
+          // Narração (silent motion clip) is muxed with the narration audio in the
+          // worker. Reset any prior mux dispatch/output so a re-render re-muxes.
+          narration_audio_asset_id: needsMux ? audioAssetId : null,
+          needs_mux: needsMux,
+          mux_dispatched: false,
+          clip_path: null,
+          clip_bucket: null,
         },
         updated_at: new Date().toISOString(),
       })

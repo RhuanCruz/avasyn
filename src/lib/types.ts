@@ -211,7 +211,7 @@ export type PresenterVideoProject = {
 
 export type SceneKind = "fala" | "imagem";
 export type SceneContentStatus = "empty" | "draft" | "generating" | "ready" | "error";
-export type SceneClipStatus = "idle" | "queued" | "rendering" | "ready" | "error";
+export type SceneClipStatus = "idle" | "queued" | "rendering" | "assembling" | "ready" | "error";
 export type SceneImageSource = "upload" | "library" | "generated";
 export type CameraMovement = "none" | "zoomin" | "zoomout" | "left" | "right" | "up";
 export type SceneImageStyle = "realista" | "cine" | "ilustra" | "3d";
@@ -234,6 +234,8 @@ export type PresenterVideoScene = {
   // Free-form direction for the person's action / camera / framing, used in both
   // modes and combined with the camera_movement preset when rendering the clip.
   action_prompt: string | null;
+  // Voice-over voice for narração scenes (defaults to the project's fala voice).
+  narration_voice_id: string | null;
   image_id: string | null;
   image_source: SceneImageSource | null;
   hedra_image_asset_id: string | null;

@@ -126,6 +126,26 @@ createServer(async (request, response) => {
       return sendJson(response, 200, { ok: true, importId: body.importId });
     }
 
+    if (request.method === "POST" && request.url === "/assemble-scene-clip") {
+      if (workerSecret && request.headers.authorization !== `Bearer ${workerSecret}`) {
+        return sendJson(response, 401, { error: "Unauthorized" });
+      }
+
+      const body = await readJson(request);
+      const sceneId = String(body.sceneId ?? "").trim();
+      if (!sceneId) {
+        return sendJson(response, 400, { error: "sceneId is required" });
+      }
+
+      await assembleSceneClip({
+        sceneId,
+        userId: String(body.userId ?? "").trim(),
+        videoUrl: String(body.videoUrl ?? "").trim(),
+        audioUrl: String(body.audioUrl ?? "").trim(),
+      });
+      return sendJson(response, 200, { ok: true, sceneId });
+    }
+
     if (request.method !== "POST" || request.url !== "/process-job") {
       return sendJson(response, 404, { error: "Not found" });
     }
@@ -150,6 +170,68 @@ createServer(async (request, response) => {
 }).listen(port, () => {
   console.log(`Avasyn video worker listening on ${port}`);
 });
+
+// Narração: mux the narration voice-over onto the (silent) motion clip. The motion
+// clip is short (~8s), so it loops under the narration and the final length follows
+// the audio. Called by sync-scene-clip once both Hedra generations are ready.
+async function assembleSceneClip({ sceneId, userId, videoUrl, audioUrl }) {
+  if (!videoUrl || !audioUrl) throw new Error("videoUrl and audioUrl are required");
+
+  const workdir = await mkdtemp(join(tmpdir(), "avasyn-scene-"));
+  const videoPath = join(workdir, "motion.mp4");
+  const audioPath = join(workdir, "narration.mp3");
+  const outputPath = join(workdir, "scene.mp4");
+
+  try {
+    await downloadHttpFile(videoUrl, videoPath);
+    await downloadHttpFile(audioUrl, audioPath);
+
+    await runCommand("ffmpeg", [
+      "-y",
+      "-stream_loop", "-1", "-i", videoPath,
+      "-i", audioPath,
+      "-map", "0:v", "-map", "1:a",
+      "-c:v", "libx264", "-pix_fmt", "yuv420p",
+      "-c:a", "aac",
+      "-shortest", "-r", "30",
+      outputPath,
+    ]);
+
+    const storagePath = `${userId}/scene-${sceneId}.mp4`;
+    await uploadStorageFile("generated-reels", storagePath, outputPath, "video/mp4");
+
+    await updateScene(sceneId, {
+      clip_status: "ready",
+      clip_url: null,
+      error_message: null,
+      metadataPatch: { clip_path: storagePath, clip_bucket: "generated-reels", needs_mux: false },
+    });
+  } catch (error) {
+    await updateScene(sceneId, {
+      clip_status: "error",
+      error_message: error instanceof Error ? error.message : "Falha ao montar a narração",
+    });
+    throw error;
+  } finally {
+    await rm(workdir, { recursive: true, force: true });
+  }
+}
+
+async function updateScene(sceneId, { clip_status, clip_url, error_message, metadataPatch }) {
+  const values = { clip_status, updated_at: new Date().toISOString() };
+  if (clip_url !== undefined) values.clip_url = clip_url;
+  if (error_message !== undefined) values.error_message = error_message;
+  if (metadataPatch) {
+    const { data } = await supabase
+      .from("presenter_video_scenes")
+      .select("metadata")
+      .eq("id", sceneId)
+      .maybeSingle();
+    values.metadata = { ...(data?.metadata ?? {}), ...metadataPatch };
+  }
+  const { error } = await supabase.from("presenter_video_scenes").update(values).eq("id", sceneId);
+  if (error) throw error;
+}
 
 async function processJob(jobId) {
   const job = await findJob(jobId);

@@ -50,7 +50,7 @@ const STYLES: { key: SceneImageStyle; label: string }[] = [
 
 const KIND_LABEL: Record<SceneKind, string> = {
   fala: "Fala do avatar",
-  imagem: "Imagem + narração",
+  imagem: "Narração",
 };
 
 // Omnia (imagem animada) só vai até 8s por geração; fala segue o áudio (até 10min).
@@ -96,6 +96,7 @@ export function ScriptedVideoEditorPage() {
   // "image" = pick the scene's own image; "reference" = pick a base image to steer I2I generation.
   const [libraryMode, setLibraryMode] = useState<"image" | "reference">("image");
   const [voicePickerOpen, setVoicePickerOpen] = useState(false);
+  const [narrationVoicePickerOpen, setNarrationVoicePickerOpen] = useState(false);
   const [uploadingScene, setUploadingScene] = useState(false);
   const [savingBase, setSavingBase] = useState(false);
 
@@ -120,9 +121,15 @@ export function ScriptedVideoEditorPage() {
   const videoModelId = project?.video_model_id ?? profile?.hedra_video_model_id ?? "";
   const motionModelId = project?.motion_model_id ?? "";
   const selVoice = voices.find((v) => v.voiceId === voiceId) ?? null;
+  const narrationVoiceId = sel?.narration_voice_id ?? voiceId;
+  const selNarrationVoice = voices.find((v) => v.voiceId === narrationVoiceId) ?? selVoice;
   // Lip-sync (fala) models need audio; motion (imagem) models animate a start frame.
   const talkingModels = useMemo(() => videoModels.filter((m) => m.requiresAudioInput), [videoModels]);
-  const motionModels = useMemo(() => videoModels.filter((m) => m.requiresStartFrame), [videoModels]);
+  // Narração uses pure image-to-video (no audio input) — the voice-over is muxed in.
+  const motionModels = useMemo(
+    () => videoModels.filter((m) => m.requiresStartFrame && !m.requiresAudioInput),
+    [videoModels],
+  );
 
   // ── Load / bootstrap ──────────────────────────────────────────────
   useEffect(() => {
@@ -152,7 +159,7 @@ export function ScriptedVideoEditorPage() {
         // Resume tracking any generation still in flight (non-blocking, survives reloads).
         loaded.scenes.forEach((s) => {
           if (s.content_status === "generating") void pollImage(s.id);
-          if (s.clip_status === "rendering") void pollClip(s.id);
+          if (s.clip_status === "rendering" || s.clip_status === "assembling") void pollClip(s.id);
           if (s.content_status === "ready" && s.image_id && !(s.metadata?.preview_url)) void backfillImage(s.id);
         });
         void loadCatalogs((prof as PresenterAvatarProfile) ?? null);
@@ -504,18 +511,23 @@ export function ScriptedVideoEditorPage() {
     }
   }
 
-  // User-uploaded clips are stored as signed URLs that expire; re-sign on load.
-  async function resignUserClips(list: PresenterVideoScene[]) {
-    for (const s of list) {
-      const clipPath = (s.metadata?.clip_path as string | undefined) ?? null;
-      if (!clipPath) continue;
-      try {
-        const url = await getStorageSignedUrl("source-videos", clipPath);
-        patchSceneLocal(s.id, { clip_url: url });
-      } catch {
-        // keep the stored URL if re-signing fails
-      }
+  // Stored scene clips (user uploads in source-videos, muxed narração in
+  // generated-reels) are signed URLs that expire; re-sign from the stored path.
+  async function resignSceneClip(s: PresenterVideoScene) {
+    const clipPath = (s.metadata?.clip_path as string | undefined) ?? null;
+    if (!clipPath) return;
+    const bucket = ((s.metadata?.clip_bucket as string | undefined) ?? "source-videos") as
+      "source-videos" | "generated-reels";
+    try {
+      const url = await getStorageSignedUrl(bucket, clipPath);
+      patchSceneLocal(s.id, { clip_url: url });
+    } catch {
+      // keep the stored URL if re-signing fails
     }
+  }
+
+  async function resignUserClips(list: PresenterVideoScene[]) {
+    for (const s of list) await resignSceneClip(s);
   }
 
   function pickLibraryImage(image: PresenterAvatarImage) {
@@ -579,7 +591,13 @@ export function ScriptedVideoEditorPage() {
       const res = await invokeFunction<SceneResponse>("sync-scene-clip", { sceneId: id });
       patchSceneLocal(id, res.scene);
       if (res.pending) void pollClip(id, attempt + 1);
-      else if (res.scene.clip_status === "ready") toast.success("Vídeo da cena pronto");
+      else if (res.scene.clip_status === "ready") {
+        // Muxed narração clips come back with only a storage path — sign it to play.
+        if (!res.scene.clip_url) await resignSceneClip(res.scene);
+        toast.success("Vídeo da cena pronto");
+      } else if (res.scene.clip_status === "error") {
+        toast.error(res.scene.error_message ?? "Falha no vídeo da cena");
+      }
     } catch {
       void pollClip(id, attempt + 1);
     }
@@ -696,6 +714,11 @@ export function ScriptedVideoEditorPage() {
                           // Seek to a frame so a poster shows instead of a black box.
                           src={`${scene.clip_url}#t=0.1`}
                         />
+                      ) : (scene.clip_status === "rendering" || scene.clip_status === "assembling") ? (
+                        <div className="sv-scene-generating">
+                          <span className="sv-spinner" />
+                          <span className="text-sm">{scene.clip_status === "assembling" ? "Montando narração…" : "Renderizando…"}</span>
+                        </div>
                       ) : preview ? (
                         <img alt="" className="sv-scene-img" src={preview} />
                       ) : (
@@ -799,7 +822,7 @@ export function ScriptedVideoEditorPage() {
                       <Icon name="users" size={15} /> Fala
                     </button>
                     <button className={`sv-seg${sel.kind === "imagem" ? " active" : ""}`} onClick={() => setKind(sel.id, "imagem")} type="button">
-                      <Icon name="image" size={15} /> Imagem + narração
+                      <Icon name="image" size={15} /> Narração
                     </button>
                   </div>
                 </div>
@@ -1004,10 +1027,21 @@ export function ScriptedVideoEditorPage() {
                       rows={4}
                     />
                   )}
-                  <div className="sv-voice-row">
-                    <Icon name="reaction" size={15} />
-                    Voz: {selVoice?.name ?? "não selecionada"}
-                  </div>
+                  {sel.kind === "fala" ? (
+                    <div className="sv-voice-row">
+                      <Icon name="reaction" size={15} />
+                      Voz: {selVoice?.name ?? "não selecionada"}
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 8 }}>
+                      <div className="sv-field-label" style={{ marginBottom: 6 }}>Voz da narração</div>
+                      <button className="sv-select sv-voice-trigger sv-full" onClick={() => setNarrationVoicePickerOpen(true)} type="button">
+                        <span>{selNarrationVoice ? `${selNarrationVoice.name}${selNarrationVoice.language ? ` · ${selNarrationVoice.language}` : ""}` : "Selecionar voz"}</span>
+                        <Icon name="chevron-down" size={14} />
+                      </button>
+                      <p className="text-xs muted" style={{ marginTop: 4 }}>Voz-over do vídeo (pode ser a mesma da fala). O personagem não faz lip-sync.</p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Clip */}
@@ -1029,14 +1063,16 @@ export function ScriptedVideoEditorPage() {
                   </select>
                   <button
                     className="sv-btn-primary sv-full"
-                    disabled={!sel.hedra_image_asset_id || (sel.kind === "fala" && !voiceId) || sel.clip_status === "rendering"}
+                    disabled={!sel.hedra_image_asset_id || !narrationVoiceId || sel.clip_status === "rendering" || sel.clip_status === "assembling"}
                     onClick={() => void renderClip(sel.id)}
                     type="button"
                   >
-                    <Icon name={sel.clip_status === "rendering" ? "refresh" : "film"} size={15} />
+                    <Icon name={sel.clip_status === "rendering" || sel.clip_status === "assembling" ? "refresh" : "film"} size={15} />
                     {sel.clip_status === "rendering"
                       ? "Renderizando…"
-                      : sel.clip_status === "ready" ? "Regerar vídeo" : "Gerar vídeo da cena"}
+                      : sel.clip_status === "assembling"
+                        ? "Montando narração…"
+                        : sel.clip_status === "ready" ? "Regerar vídeo" : "Gerar vídeo da cena"}
                   </button>
                   <button
                     className="sv-btn-ghost sv-full"
@@ -1068,6 +1104,15 @@ export function ScriptedVideoEditorPage() {
           onClose={() => setVoicePickerOpen(false)}
           onSelect={(v) => { void persistProject({ voice_id: v.voiceId }); setVoicePickerOpen(false); }}
           selectedId={voiceId}
+          voices={voices}
+        />
+      ) : null}
+
+      {narrationVoicePickerOpen && sel ? (
+        <VoicePicker
+          onClose={() => setNarrationVoicePickerOpen(false)}
+          onSelect={(v) => { void persistScene(sel.id, { narration_voice_id: v.voiceId }); setNarrationVoicePickerOpen(false); }}
+          selectedId={narrationVoiceId}
           voices={voices}
         />
       ) : null}
