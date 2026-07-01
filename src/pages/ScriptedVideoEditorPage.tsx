@@ -1234,38 +1234,74 @@ function LibraryImagePicker({
 }) {
   const [images, setImages] = useState<PresenterAvatarImage[]>([]);
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const uploadRef = useRef<HTMLInputElement | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      const { data } = await supabase
-        .from("presenter_avatar_images")
-        .select("*")
-        .eq("avatar_id", avatarId)
-        .not("provider_asset_id", "is", null)
-        .order("created_at", { ascending: false });
-      if (!cancelled) {
-        setImages((data as PresenterAvatarImage[]) ?? []);
-        setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
+  const reload = useCallback(async () => {
+    const { data } = await supabase
+      .from("presenter_avatar_images")
+      .select("*")
+      .eq("avatar_id", avatarId)
+      .not("provider_asset_id", "is", null)
+      .order("created_at", { ascending: false });
+    setImages((data as PresenterAvatarImage[]) ?? []);
+    setLoading(false);
   }, [avatarId]);
+
+  useEffect(() => { void reload(); }, [reload]);
+
+  async function onUploadImages(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (files.length === 0) return;
+    setUploading(true);
+    let ok = 0;
+    for (const file of files) {
+      try {
+        const { path, uploadUrl } = await getStorageUploadUrl("presenter-avatar-images", file.name, file.type);
+        const up = await fetch(uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
+        if (!up.ok) throw new Error("Falha no upload");
+        const imageUrl = await getStorageSignedUrl("presenter-avatar-images", path);
+        await invokeFunction("upload-presenter-avatar-image", {
+          avatarId, storagePath: path, imageUrl, filename: file.name, contentType: file.type, setAsBase: false,
+        });
+        ok += 1;
+      } catch (error) {
+        toast.error(`${file.name}: ${error instanceof Error ? error.message : "falha no upload"}`);
+      }
+    }
+    setUploading(false);
+    if (ok > 0) { toast.success(`${ok} imagem(ns) enviada(s)`); void reload(); }
+  }
 
   return (
     <div className="sv-modal-overlay" onClick={onClose}>
       <div className="sv-modal" onClick={(e) => e.stopPropagation()} style={{ width: 640, maxHeight: "82vh", overflow: "auto" }}>
+        <input accept="image/jpeg,image/png,image/webp" hidden multiple onChange={onUploadImages} ref={uploadRef} type="file" />
         <div className="page-header" style={{ marginBottom: 14 }}>
           <div>
             <div className="text-lg" style={{ fontWeight: 700 }}>Biblioteca do avatar</div>
             <p className="page-subtitle">Imagens já geradas/enviadas para este avatar.</p>
           </div>
-          <button className="sv-btn-ghost" onClick={onClose} type="button"><Icon name="x" size={15} /></button>
+          <div className="flex items-center gap-2">
+            <button className="sv-btn-ghost" disabled={uploading} onClick={() => uploadRef.current?.click()} type="button">
+              <Icon name="upload" size={15} /> {uploading ? "Enviando…" : "Enviar imagens"}
+            </button>
+            <button className="sv-btn-ghost" onClick={onClose} type="button"><Icon name="x" size={15} /></button>
+          </div>
         </div>
         {loading ? (
           <div className="empty"><div><h3>Carregando…</h3></div></div>
         ) : images.length === 0 ? (
-          <div className="empty"><div><h3>Sem imagens ainda</h3><p>Gere ou envie uma imagem primeiro.</p></div></div>
+          <div className="empty">
+            <div>
+              <h3>Sem imagens ainda</h3>
+              <p>Gere uma imagem ou envie as suas.</p>
+              <button className="sv-btn-ghost" disabled={uploading} onClick={() => uploadRef.current?.click()} style={{ marginTop: 12 }} type="button">
+                <Icon name="upload" size={15} /> {uploading ? "Enviando…" : "Enviar imagens"}
+              </button>
+            </div>
+          </div>
         ) : (
           <div className="sv-lib-grid">
             {images.map((img) => (

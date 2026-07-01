@@ -21,6 +21,9 @@ Deno.serve(async (request) => {
     const imageUrl = String(body.imageUrl ?? "").trim();
     const filename = String(body.filename ?? "avatar-image.png").trim();
     const contentType = String(body.contentType ?? "").trim();
+    // Multi-upload into the library shouldn't hijack the avatar's approved base
+    // photo on every file; callers pass setAsBase:false to just add to the library.
+    const setAsBase = body.setAsBase !== false;
 
     if (!imageUrl) throw new Error("imageUrl is required");
     if (storagePath && !storagePath.startsWith(`${user.id}/`)) throw new Error("Forbidden storage path");
@@ -80,6 +83,11 @@ Deno.serve(async (request) => {
       .select("*")
       .single();
     if (updateSetError || !updatedSet) throw updateSetError ?? new Error("Failed to update upload set");
+
+    if (!setAsBase) {
+      // Library-only upload: keep the avatar's current approved base image untouched.
+      return jsonResponse({ image, imageSet: updatedSet, profile: null });
+    }
 
     const { data: profile, error: profileError } = await service
       .from("presenter_avatar_profiles")
