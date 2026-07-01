@@ -222,7 +222,12 @@ export function ScriptedVideoEditorPage() {
       setImageModels(models.image ?? []);
       setVideoModels(models.video ?? []);
       setVoices(voiceResp.voices ?? []);
-      setImageModelId((cur) => cur || prof?.hedra_image_model_id || models.image?.[0]?.id || "");
+      // Prefer a text-to-image model by default — image-to-image (requiresStartFrame)
+      // models need a base image and fail without one.
+      const defaultImage = prof?.hedra_image_model_id ||
+        models.image?.find((m) => !m.requiresStartFrame)?.id ||
+        models.image?.[0]?.id || "";
+      setImageModelId((cur) => cur || defaultImage);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao carregar catálogo Hedra");
     }
@@ -383,6 +388,7 @@ export function ScriptedVideoEditorPage() {
       const res = await invokeFunction<SceneResponse>("generate-scene-image", { sceneId: id, imageModelId });
       patchSceneLocal(id, res.scene);
       if (res.pending) void pollImage(id);
+      else if (res.scene.content_status === "error") toast.error(res.scene.error_message ?? "Falha ao gerar imagem");
       else toast.success("Imagem gerada");
     } catch (error) {
       patchSceneLocal(id, { content_status: "error" });
@@ -441,6 +447,7 @@ export function ScriptedVideoEditorPage() {
       const res = await invokeFunction<SceneResponse>("sync-scene-image", { sceneId: id });
       patchSceneLocal(id, res.scene);
       if (res.pending) void pollImage(id, attempt + 1);
+      else if (res.scene.content_status === "error") toast.error(res.scene.error_message ?? "Falha ao gerar imagem");
       else toast.success("Imagem gerada");
     } catch {
       void pollImage(id, attempt + 1);
@@ -836,7 +843,9 @@ export function ScriptedVideoEditorPage() {
                       <select className="sv-select sv-full" onChange={(e) => setImageModelId(e.target.value)} value={imageModelId}>
                         <option value="">Modelo de imagem</option>
                         {imageModels.map((m) => (
-                          <option key={m.id} value={m.id}>{modelLabelWithCost(m)}</option>
+                          <option key={m.id} value={m.id}>
+                            {modelLabelWithCost(m)}{m.requiresStartFrame ? " · precisa de imagem base" : ""}
+                          </option>
                         ))}
                       </select>
                       {sel.kind === "imagem" ? (

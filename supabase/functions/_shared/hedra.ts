@@ -72,9 +72,18 @@ export async function hedraRequest<T>(
   const text = await response.text();
   const payload = text ? JSON.parse(text) : {};
   if (!response.ok) {
-    const message = readOptionalString(readObject(payload).error_message)
-      ?? readOptionalString(readObject(payload).detail)
-      ?? text;
+    const obj = readObject(payload);
+    // FastAPI validation errors come as an array of { loc, msg } — flatten them so
+    // the actual missing/invalid field surfaces instead of a bare "Field required".
+    const detail = obj.detail;
+    const detailMsg = Array.isArray(detail)
+      ? detail.map((d) => {
+        const o = readObject(d);
+        const loc = Array.isArray(o.loc) ? o.loc.join(".") : "";
+        return [loc, readOptionalString(o.msg)].filter(Boolean).join(": ");
+      }).filter(Boolean).join("; ") || null
+      : readOptionalString(detail);
+    const message = readOptionalString(obj.error_message) ?? detailMsg ?? text;
     throw new Error(`Hedra ${response.status}: ${message}`);
   }
 

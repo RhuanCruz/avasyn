@@ -62,6 +62,8 @@ Deno.serve(async (request) => {
     // Each image model supports different aspect ratios / resolutions — resolve from the catalog.
     let modelAspects: string[] = [];
     let modelResolutions: string[] = [];
+    let modelName = "";
+    let requiresStartFrame = false;
     try {
       const rawModels = await hedraRequest<unknown>("/models");
       const m = (Array.isArray(rawModels) ? rawModels : []).find(
@@ -70,6 +72,8 @@ Deno.serve(async (request) => {
       if (m) {
         modelAspects = Array.isArray(m.aspect_ratios) ? m.aspect_ratios.map(String) : [];
         modelResolutions = Array.isArray(m.resolutions) ? m.resolutions.map(String) : [];
+        modelName = String(m.name ?? "");
+        requiresStartFrame = m.requires_start_frame === true;
       }
     } catch {
       // ignore — fall back to defaults
@@ -83,14 +87,27 @@ Deno.serve(async (request) => {
     // Automatic context: when the avatar already has an approved base image, steer the
     // generation toward it via image_to_image so scenes stay visually consistent.
     const baseAssetId = readString(profile?.hedra_image_asset_id);
+
+    // Image-to-image models (requires_start_frame) need a base/reference image. Without one
+    // Hedra fails async with a cryptic "Field required", so reject early with a clear message.
+    if (requiresStartFrame && !baseAssetId) {
+      throw new Error(
+        `O modelo ${modelName || "selecionado"} é image-to-image e precisa de uma imagem base do avatar. ` +
+        `Escolha um modelo text-to-image (T2I) ou defina a foto base do avatar.`,
+      );
+    }
+
+    const useImageToImage = Boolean(baseAssetId) && requiresStartFrame;
     const generationBody: Record<string, unknown> = {
-      type: baseAssetId ? "image_to_image" : "image",
+      type: useImageToImage ? "image_to_image" : "image",
       text_prompt: prompt,
       ai_model_id: imageModelId,
       aspect_ratio: aspectRatio,
       batch_size: 1,
       enhance_prompt: false,
-      ...(baseAssetId ? { reference_image_ids: [baseAssetId] } : {}),
+      // Models that require a start frame expect it as start_keyframe_id; older ones
+      // accept reference_image_ids. Send both when steering from a base image.
+      ...(useImageToImage ? { start_keyframe_id: baseAssetId, reference_image_ids: [baseAssetId] } : {}),
       ...(resolution ? { resolution } : {}),
     };
 
