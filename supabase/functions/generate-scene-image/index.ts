@@ -84,9 +84,22 @@ Deno.serve(async (request) => {
       modelResolutions.includes(r)
     ) ?? null;
 
-    // Automatic context: when the avatar already has an approved base image, steer the
-    // generation toward it via image_to_image so scenes stay visually consistent.
-    const baseAssetId = readString(profile?.hedra_image_asset_id);
+    // Reference/base image to steer image-to-image generation. Prefer a per-scene
+    // reference picked from the avatar library (validated to belong to this user's
+    // avatar); fall back to the avatar's approved base image.
+    let referenceAssetId: string | null = null;
+    const refRequested = readString(body.referenceImageId);
+    if (refRequested) {
+      const { data: refImg } = await service
+        .from("presenter_avatar_images")
+        .select("provider_asset_id")
+        .eq("avatar_id", scene.avatar_id)
+        .eq("user_id", user.id)
+        .eq("provider_asset_id", refRequested)
+        .maybeSingle();
+      if (refImg?.provider_asset_id) referenceAssetId = String(refImg.provider_asset_id);
+    }
+    const baseAssetId = referenceAssetId ?? readString(profile?.hedra_image_asset_id);
 
     // Image-to-image models (requires_start_frame) need a base/reference image. Without one
     // Hedra fails async with a cryptic "Field required", so reject early with a clear message.

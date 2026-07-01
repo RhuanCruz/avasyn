@@ -93,6 +93,8 @@ export function ScriptedVideoEditorPage() {
   const [imageTab, setImageTab] = useState<ImageTab>("gerar");
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("forms");
   const [libraryOpen, setLibraryOpen] = useState(false);
+  // "image" = pick the scene's own image; "reference" = pick a base image to steer I2I generation.
+  const [libraryMode, setLibraryMode] = useState<"image" | "reference">("image");
   const [voicePickerOpen, setVoicePickerOpen] = useState(false);
   const [uploadingScene, setUploadingScene] = useState(false);
   const [savingBase, setSavingBase] = useState(false);
@@ -194,7 +196,7 @@ export function ScriptedVideoEditorPage() {
     setSidebarTab("forms");
     if (action === "image") { setImageTab("upload"); requestAnimationFrame(() => fileRef.current?.click()); }
     else if (action === "video") { requestAnimationFrame(() => videoFileRef.current?.click()); }
-    else if (action === "library") { setImageTab("biblioteca"); setLibraryOpen(true); }
+    else if (action === "library") { setImageTab("biblioteca"); openLibrary("image"); }
     else { setImageTab("gerar"); setPendingPromptFocus(sceneId); }
   }
 
@@ -385,7 +387,8 @@ export function ScriptedVideoEditorPage() {
     }
     patchSceneLocal(id, { content_status: "generating" });
     try {
-      const res = await invokeFunction<SceneResponse>("generate-scene-image", { sceneId: id, imageModelId });
+      const referenceImageId = (scene.metadata?.reference_asset_id as string | undefined) ?? undefined;
+      const res = await invokeFunction<SceneResponse>("generate-scene-image", { sceneId: id, imageModelId, referenceImageId });
       patchSceneLocal(id, res.scene);
       if (res.pending) void pollImage(id);
       else if (res.scene.content_status === "error") toast.error(res.scene.error_message ?? "Falha ao gerar imagem");
@@ -521,6 +524,18 @@ export function ScriptedVideoEditorPage() {
       toast.error("Esta imagem não tem asset Hedra");
       return;
     }
+    if (libraryMode === "reference") {
+      // Base/reference image to steer image-to-image generation for this scene.
+      void persistScene(sel.id, {
+        metadata: {
+          ...(sel.metadata ?? {}),
+          reference_asset_id: image.provider_asset_id,
+          reference_preview_url: image.preview_url,
+        },
+      });
+      setLibraryOpen(false);
+      return;
+    }
     void persistScene(sel.id, {
       image_id: image.id,
       image_source: "library",
@@ -529,6 +544,19 @@ export function ScriptedVideoEditorPage() {
       metadata: { ...(sel.metadata ?? {}), preview_url: image.preview_url },
     });
     setLibraryOpen(false);
+  }
+
+  function openLibrary(mode: "image" | "reference") {
+    setLibraryMode(mode);
+    setLibraryOpen(true);
+  }
+
+  function clearReference() {
+    if (!sel) return;
+    const meta = { ...(sel.metadata ?? {}) };
+    delete meta.reference_asset_id;
+    delete meta.reference_preview_url;
+    void persistScene(sel.id, { metadata: meta });
   }
 
   // ── Clip render ───────────────────────────────────────────────────
@@ -824,7 +852,7 @@ export function ScriptedVideoEditorPage() {
                   ) : null}
 
                   {imageTab === "biblioteca" ? (
-                    <button className="sv-btn-ghost sv-full" onClick={() => setLibraryOpen(true)} type="button">
+                    <button className="sv-btn-ghost sv-full" onClick={() => openLibrary("image")} type="button">
                       <Icon name="library" size={15} /> Escolher da biblioteca
                     </button>
                   ) : null}
@@ -848,6 +876,32 @@ export function ScriptedVideoEditorPage() {
                           </option>
                         ))}
                       </select>
+
+                      {(() => {
+                        const refPreview = sel.metadata?.reference_preview_url as string | undefined;
+                        const modelNeedsBase = imageModels.find((m) => m.id === imageModelId)?.requiresStartFrame;
+                        return (
+                          <div className="sv-ref" style={{ marginTop: 8 }}>
+                            <div className="sv-field-label" style={{ marginBottom: 6 }}>
+                              Imagem base (referência){modelNeedsBase ? " — obrigatória neste modelo" : ""}
+                            </div>
+                            {refPreview ? (
+                              <div className="sv-ref-row">
+                                <img alt="" className="sv-ref-thumb" src={refPreview} />
+                                <button className="sv-btn-ghost" onClick={() => openLibrary("reference")} type="button">Trocar</button>
+                                <button className="sv-btn-ghost" onClick={clearReference} type="button">Remover</button>
+                              </div>
+                            ) : (
+                              <button className="sv-btn-ghost sv-full" onClick={() => openLibrary("reference")} type="button">
+                                <Icon name="library" size={15} /> Escolher imagem base
+                              </button>
+                            )}
+                            <p className="text-xs muted" style={{ marginTop: 4 }}>
+                              Usada por modelos image-to-image (I2I) para manter rosto/estilo. Escolha da biblioteca do avatar.
+                            </p>
+                          </div>
+                        );
+                      })()}
                       {sel.kind === "imagem" ? (
                         <div className="sv-style-row" style={{ marginTop: 8 }}>
                           {STYLES.map((st) => (
