@@ -142,6 +142,7 @@ createServer(async (request, response) => {
         userId: String(body.userId ?? "").trim(),
         videoUrl: String(body.videoUrl ?? "").trim(),
         audioUrl: String(body.audioUrl ?? "").trim(),
+        imageUrl: String(body.imageUrl ?? "").trim(),
       });
       return sendJson(response, 200, { ok: true, sceneId });
     }
@@ -171,31 +172,40 @@ createServer(async (request, response) => {
   console.log(`Avasyn video worker listening on ${port}`);
 });
 
-// Narração: mux the narration voice-over onto the (silent) motion clip. The motion
-// clip is short (~8s), so it loops under the narration and the final length follows
-// the audio. Called by sync-scene-clip once both Hedra generations are ready.
-async function assembleSceneClip({ sceneId, userId, videoUrl, audioUrl }) {
-  if (!videoUrl || !audioUrl) throw new Error("videoUrl and audioUrl are required");
+// Narração: build the scene clip with the narration voice-over. Two modes:
+//   - Ken Burns (imageUrl): a still image with a subtle slow zoom (the person never
+//     moves/talks). This is the default — no generative video.
+//   - Motion mux (videoUrl): a short silent motion clip looped under the narration
+//     (opt-in "movimento IA"). Called by render/sync-scene-clip.
+async function assembleSceneClip({ sceneId, userId, videoUrl, audioUrl, imageUrl }) {
+  if (!audioUrl) throw new Error("audioUrl is required");
+  if (!videoUrl && !imageUrl) throw new Error("videoUrl or imageUrl is required");
 
   const workdir = await mkdtemp(join(tmpdir(), "avasyn-scene-"));
-  const videoPath = join(workdir, "motion.mp4");
   const audioPath = join(workdir, "narration.mp3");
   const outputPath = join(workdir, "scene.mp4");
 
   try {
-    await downloadHttpFile(videoUrl, videoPath);
     await downloadHttpFile(audioUrl, audioPath);
 
-    await runCommand("ffmpeg", [
-      "-y",
-      "-stream_loop", "-1", "-i", videoPath,
-      "-i", audioPath,
-      "-map", "0:v", "-map", "1:a",
-      "-c:v", "libx264", "-pix_fmt", "yuv420p",
-      "-c:a", "aac",
-      "-shortest", "-r", "30",
-      outputPath,
-    ]);
+    if (imageUrl) {
+      const imagePath = join(workdir, "still.jpg");
+      await downloadHttpFile(imageUrl, imagePath);
+      await runKenBurns({ imagePath, audioPath, outputPath });
+    } else {
+      const videoPath = join(workdir, "motion.mp4");
+      await downloadHttpFile(videoUrl, videoPath);
+      await runCommand("ffmpeg", [
+        "-y",
+        "-stream_loop", "-1", "-i", videoPath,
+        "-i", audioPath,
+        "-map", "0:v", "-map", "1:a",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        "-shortest", "-r", "30",
+        outputPath,
+      ]);
+    }
 
     const storagePath = `${userId}/scene-${sceneId}.mp4`;
     await uploadStorageFile("generated-reels", storagePath, outputPath, "video/mp4");
@@ -214,6 +224,39 @@ async function assembleSceneClip({ sceneId, userId, videoUrl, audioUrl }) {
     throw error;
   } finally {
     await rm(workdir, { recursive: true, force: true });
+  }
+}
+
+// Still image + narration: 9:16 with a subtle slow zoom (Ken Burns). Length follows
+// the audio (-shortest against the looped image). Falls back to a static frame if
+// the zoompan filter isn't available.
+async function runKenBurns({ imagePath, audioPath, outputPath }) {
+  const scaleCrop = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920";
+  try {
+    await runCommand("ffmpeg", [
+      "-y",
+      "-loop", "1", "-i", imagePath,
+      "-i", audioPath,
+      "-filter_complex",
+      `[0:v]${scaleCrop},zoompan=z='min(zoom+0.0004,1.12)':d=1:s=1080x1920:fps=30,format=yuv420p[v]`,
+      "-map", "[v]", "-map", "1:a",
+      "-c:v", "libx264", "-c:a", "aac",
+      "-shortest", "-r", "30",
+      outputPath,
+    ]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (!/zoompan|No such filter/i.test(message)) throw error;
+    await runCommand("ffmpeg", [
+      "-y",
+      "-loop", "1", "-i", imagePath,
+      "-i", audioPath,
+      "-vf", `${scaleCrop},format=yuv420p`,
+      "-map", "0:v", "-map", "1:a",
+      "-c:v", "libx264", "-c:a", "aac",
+      "-shortest", "-r", "30",
+      outputPath,
+    ]);
   }
 }
 

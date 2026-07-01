@@ -5,6 +5,10 @@ import {
   getAuthenticatedUser,
 } from "../_shared/supabase.ts";
 
+declare const EdgeRuntime: {
+  waitUntil: (promise: Promise<unknown>) => void;
+};
+
 const FALLBACK_AVATAR_MODEL_ID = "26f0fc66-152b-40ab-abed-76c43df99bc8";
 
 const MOVEMENT_PROMPT: Record<string, string> = {
@@ -54,6 +58,13 @@ Deno.serve(async (request) => {
       throw new Error(scene.kind === "fala" ? "Escreva a fala da cena" : "Escreva a narração da cena");
     }
 
+    const isNarration = scene.kind === "imagem";
+    // Narração default = still image + Ken Burns (no generative video, so the person
+    // never moves/talks). "ai" opts into a generative motion model (may animate faces).
+    const motionSource = isNarration
+      ? (readString((scene.metadata as Record<string, unknown> | null)?.motion_source) ?? "kenburns")
+      : "video";
+
     const { data: project } = await service
       .from("presenter_video_projects")
       .select("voice_id, video_model_id, motion_model_id")
@@ -67,39 +78,7 @@ Deno.serve(async (request) => {
       .eq("user_id", user.id)
       .maybeSingle();
 
-    // Resolve a real video model from the live catalog.
-    let catalog: NormModel[] = [];
-    try {
-      const raw = await hedraRequest<unknown>("/models");
-      catalog = (Array.isArray(raw) ? raw : []).map(normalizeModel);
-    } catch (_e) {
-      catalog = [];
-    }
-    // Talking = audio-driven lip-sync (fala). Motion (narração) = pure image-to-video
-    // that animates a start frame WITHOUT audio input (Kling/Seedance/Veo) — we add the
-    // narration voice-over ourselves via the worker mux.
-    const talkingModels = catalog.filter((m) =>
-      m.type === "video" && m.requiresAudioInput && m.requiresStartFrame
-    );
-    const motionModels = catalog.filter((m) =>
-      m.type === "video" && m.requiresStartFrame && !m.requiresAudioInput
-    );
-    const isNarration = scene.kind === "imagem";
-    let chosen: NormModel | undefined;
-    if (!isNarration) {
-      const wantId = readString(project?.video_model_id) ?? readString(profile?.hedra_video_model_id);
-      chosen = talkingModels.find((m) => m.id === wantId) ?? talkingModels[0];
-    } else {
-      const wantId = readString(project?.motion_model_id);
-      chosen = motionModels.find((m) => m.id === wantId) ??
-        motionModels[0] ??
-        talkingModels[0];
-    }
-    const aiModelId = chosen?.id ?? FALLBACK_AVATAR_MODEL_ID;
-
-    // Fala uses a project-level voice; narração uses the per-scene narration voice
-    // (falling back to the project voice). Both need a voice — fala for lip-sync,
-    // narração for the voice-over that the worker muxes onto the silent motion clip.
+    // Fala uses the project voice; narração uses the per-scene narration voice.
     const voiceId = isNarration
       ? (readString(scene.narration_voice_id) ??
         readString(project?.voice_id) ??
@@ -113,61 +92,101 @@ Deno.serve(async (request) => {
     if (!voiceId) {
       throw new Error(isNarration ? "Selecione a voz da narração" : "Selecione uma voz antes de gerar o vídeo");
     }
-    // Embed audio into the Hedra generation only for audio-driven models (fala lip-sync).
-    // Otherwise the motion clip is silent and we mux the narration in the worker.
-    const embedAudio = chosen?.requiresAudioInput === true;
-    const needsMux = !embedAudio;
+
+    // Step 1 — generate the speech/narration audio standalone (Hedra TTS). Inline
+    // audio_generation is rejected, but a standalone text_to_speech works.
+    const audioAssetId = await generateTts(voiceId, speech);
+
+    // ── Narração / Ken Burns: no generative video. Build the clip from the still
+    //    image + the narration audio in the worker. The character never moves/talks.
+    if (isNarration && motionSource === "kenburns") {
+      const imageUrl = (await fetchAssetUrl("image", scene.hedra_image_asset_id))?.url ??
+        readString((scene.metadata as Record<string, unknown> | null)?.preview_url);
+      const audioUrl = (await fetchAssetUrl("audio", audioAssetId))?.url ?? null;
+      if (!imageUrl) throw new Error("Não foi possível resolver a imagem da cena");
+      if (!audioUrl) throw new Error("Não foi possível resolver o áudio da narração");
+
+      const { data: updated, error } = await service
+        .from("presenter_video_scenes")
+        .update({
+          clip_status: "assembling",
+          clip_generation_id: null,
+          error_message: null,
+          metadata: {
+            ...(scene.metadata ?? {}),
+            mode: "kenburns",
+            narration_audio_asset_id: audioAssetId,
+            needs_mux: true,
+            mux_dispatched: true,
+            clip_path: null,
+            clip_bucket: null,
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", scene.id)
+        .select("*")
+        .single();
+      if (error || !updated) throw error ?? new Error("Falha ao salvar render da cena");
+
+      EdgeRuntime.waitUntil(dispatchWorker(service, {
+        sceneId: scene.id,
+        userId: scene.user_id,
+        imageUrl,
+        audioUrl,
+      }));
+      return jsonResponse({ scene: updated, pending: true });
+    }
+
+    // ── Fala (lip-sync) or narração "movimento IA": generate a Hedra video.
+    let catalog: NormModel[] = [];
+    try {
+      const raw = await hedraRequest<unknown>("/models");
+      catalog = (Array.isArray(raw) ? raw : []).map(normalizeModel);
+    } catch (_e) {
+      catalog = [];
+    }
+    const talkingModels = catalog.filter((m) =>
+      m.type === "video" && m.requiresAudioInput && m.requiresStartFrame
+    );
+    const motionModels = catalog.filter((m) =>
+      m.type === "video" && m.requiresStartFrame && !m.requiresAudioInput
+    );
+    let chosen: NormModel | undefined;
+    if (!isNarration) {
+      const wantId = readString(project?.video_model_id) ?? readString(profile?.hedra_video_model_id);
+      chosen = talkingModels.find((m) => m.id === wantId) ?? talkingModels[0];
+    } else {
+      // Narração "IA": only pure motion models — never fall back to a talking model
+      // (that would lip-sync the narration onto the person).
+      const wantId = readString(project?.motion_model_id);
+      chosen = motionModels.find((m) => m.id === wantId) ?? motionModels[0];
+      if (!chosen) {
+        throw new Error("Nenhum modelo de movimento disponível. Use o modo Imagem (Ken Burns).");
+      }
+    }
+    const aiModelId = chosen?.id ?? FALLBACK_AVATAR_MODEL_ID;
+
+    // Only fala embeds audio (lip-sync). Narração never passes audio to the video —
+    // its voice-over is muxed in the worker, so the person never lip-syncs.
+    const embedAudio = !isNarration && chosen?.requiresAudioInput === true;
+    const needsMux = isNarration; // narração "IA" clips are silent → muxed afterwards
     const resolution = pickResolution(chosen?.resolutions ?? []);
     const aspectRatio = (chosen?.aspectRatios ?? []).includes("9:16")
       ? "9:16"
       : ((chosen?.aspectRatios ?? [])[0] ?? "9:16");
 
-    // Step 1 — generate the speech/narration audio standalone. Inline audio_generation
-    // is rejected by Hedra ("model missing"), but a standalone text_to_speech works.
-    // Both modes generate it: fala embeds it (lip-sync); narração muxes it in the worker.
-    let audioAssetId: string | null = null;
-    {
-      const tts = await hedraRequest<Record<string, unknown>>("/generations", {
-        body: {
-          type: "text_to_speech",
-          voice_id: voiceId,
-          text: speech,
-          language: "Portuguese",
-          speed: 1,
-          stability: 0.5,
-        },
-      });
-      const ttsGenId = readString(tts.id);
-      audioAssetId = readString(tts.asset_id);
-      for (let i = 0; i < 30 && ttsGenId; i += 1) {
-        const st = await hedraRequest<Record<string, unknown>>(
-          `/generations/${encodeURIComponent(ttsGenId)}/status`,
-        );
-        audioAssetId = readString(st.asset_id) ?? audioAssetId;
-        const mapped = mapHedraGenerationStatus(readString(st.status));
-        if (mapped === "completed") break;
-        if (mapped === "error") {
-          throw new Error(readString(st.error_message) ?? "Falha ao gerar o áudio");
-        }
-        await sleep(2500);
-      }
-      if (!audioAssetId) throw new Error("Áudio não foi gerado");
-    }
-
-    // Step 2 — generate the video. The text_prompt combines the base phrasing for
-    // the kind, the free-form action/camera prompt, and the camera_movement preset.
     const movementPrompt = MOVEMENT_PROMPT[String(scene.camera_movement)] ?? MOVEMENT_PROMPT.none;
     const actionPrompt = readString(scene.action_prompt);
     const base = scene.kind === "fala"
       ? "A presenter speaking directly to camera with natural facial expression and subtle gestures"
-      : "Subtle natural motion";
+      : "Subtle natural motion, do not change the subject's mouth";
     const motionPrompt = [base, actionPrompt, movementPrompt].filter(Boolean).join(", ") + ".";
     const generatedVideoInputs: Record<string, unknown> = {
       text_prompt: motionPrompt,
       aspect_ratio: aspectRatio,
       resolution,
     };
-    if (scene.kind === "imagem") {
+    if (isNarration) {
       const cap = chosen?.maxDurationMs ? Math.floor(chosen.maxDurationMs / 1000) : 8;
       const seconds = Math.min(Math.max(1, Number(scene.duration_s) || 6), Math.max(1, cap), 8);
       generatedVideoInputs.duration_ms = seconds * 1000;
@@ -194,12 +213,11 @@ Deno.serve(async (request) => {
         error_message: null,
         metadata: {
           ...(scene.metadata ?? {}),
+          mode: isNarration ? "ai" : "fala",
           clip_model_id: aiModelId,
           resolution,
           aspect_ratio: aspectRatio,
           audio_asset_id: audioAssetId,
-          // Narração (silent motion clip) is muxed with the narration audio in the
-          // worker. Reset any prior mux dispatch/output so a re-render re-muxes.
           narration_audio_asset_id: needsMux ? audioAssetId : null,
           needs_mux: needsMux,
           mux_dispatched: false,
@@ -222,6 +240,86 @@ Deno.serve(async (request) => {
     );
   }
 });
+
+async function generateTts(voiceId: string, speech: string): Promise<string> {
+  const tts = await hedraRequest<Record<string, unknown>>("/generations", {
+    body: {
+      type: "text_to_speech",
+      voice_id: voiceId,
+      text: speech,
+      language: "Portuguese",
+      speed: 1,
+      stability: 0.5,
+    },
+  });
+  const ttsGenId = readString(tts.id);
+  let audioAssetId = readString(tts.asset_id);
+  for (let i = 0; i < 30 && ttsGenId; i += 1) {
+    const st = await hedraRequest<Record<string, unknown>>(
+      `/generations/${encodeURIComponent(ttsGenId)}/status`,
+    );
+    audioAssetId = readString(st.asset_id) ?? audioAssetId;
+    const mapped = mapHedraGenerationStatus(readString(st.status));
+    if (mapped === "completed") break;
+    if (mapped === "error") {
+      throw new Error(readString(st.error_message) ?? "Falha ao gerar o áudio");
+    }
+    await sleep(2500);
+  }
+  if (!audioAssetId) throw new Error("Áudio não foi gerado");
+  return audioAssetId;
+}
+
+// Dispatch the Ken Burns assembly (still image + narration audio) to the worker.
+async function dispatchWorker(
+  service: ReturnType<typeof createServiceClient>,
+  payload: { sceneId: string; userId: string; imageUrl: string; audioUrl: string },
+) {
+  try {
+    const workerUrl = Deno.env.get("VIDEO_WORKER_URL");
+    const workerSecret = Deno.env.get("VIDEO_WORKER_SECRET");
+    if (!workerUrl) throw new Error("VIDEO_WORKER_URL não configurado");
+    const response = await fetch(`${workerUrl.replace(/\/$/, "")}/assemble-scene-clip`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(workerSecret ? { Authorization: `Bearer ${workerSecret}` } : {}),
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw new Error(`assemble-scene-clip: ${await response.text()}`);
+  } catch (error) {
+    await service
+      .from("presenter_video_scenes")
+      .update({
+        clip_status: "error",
+        error_message: error instanceof Error ? error.message : "Falha ao montar a narração",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", payload.sceneId);
+  }
+}
+
+async function fetchAssetUrl(
+  type: "image" | "video" | "audio",
+  assetId: string,
+): Promise<{ url: string | null; thumbnailUrl: string | null } | null> {
+  try {
+    const res = await hedraRequest<unknown>(`/assets?type=${type}&ids=${encodeURIComponent(assetId)}`);
+    const list = Array.isArray(res)
+      ? res
+      : (Array.isArray((res as Record<string, unknown>)?.assets) ? (res as Record<string, unknown>).assets as unknown[] : []);
+    const first = (list[0] ?? null) as Record<string, unknown> | null;
+    if (!first) return null;
+    const inner = (first.asset ?? {}) as Record<string, unknown>;
+    return {
+      url: readString(inner.download_url) ?? readString(inner.url),
+      thumbnailUrl: readString(first.thumbnail_url),
+    };
+  } catch {
+    return null;
+  }
+}
 
 function pickResolution(resolutions: string[]): string {
   for (const pref of ["720p", "540p", "1080p"]) {

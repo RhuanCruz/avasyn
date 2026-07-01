@@ -123,6 +123,9 @@ export function ScriptedVideoEditorPage() {
   const selVoice = voices.find((v) => v.voiceId === voiceId) ?? null;
   const narrationVoiceId = sel?.narration_voice_id ?? voiceId;
   const selNarrationVoice = voices.find((v) => v.voiceId === narrationVoiceId) ?? selVoice;
+  // Narração video source: "kenburns" (still image + subtle zoom, default) or "ai"
+  // (generative motion model — may animate the person's face).
+  const motionSource = ((sel?.metadata?.motion_source as string | undefined) ?? "kenburns");
   // Lip-sync (fala) models need audio; motion (imagem) models animate a start frame.
   const talkingModels = useMemo(() => videoModels.filter((m) => m.requiresAudioInput), [videoModels]);
   // Narração uses pure image-to-video (no audio input) — the voice-over is muxed in.
@@ -1050,17 +1053,61 @@ export function ScriptedVideoEditorPage() {
                   {sel.clip_status === "ready" ? (
                     <p className="text-xs muted" style={{ marginBottom: 8 }}>Pronto — toca no card da cena.</p>
                   ) : null}
-                  <select
-                    className="sv-select sv-full"
-                    onChange={(e) => void persistProject(sel.kind === "fala" ? { video_model_id: e.target.value } : { motion_model_id: e.target.value })}
-                    style={{ marginBottom: 8 }}
-                    value={sel.kind === "fala" ? videoModelId : motionModelId}
-                  >
-                    <option value="">{sel.kind === "fala" ? "Modelo de fala (lip-sync)" : "Modelo de movimento"}</option>
-                    {(sel.kind === "fala" ? talkingModels : motionModels).map((m) => (
-                      <option key={m.id} value={m.id}>{modelLabelWithCost(m)}</option>
-                    ))}
-                  </select>
+                  {sel.kind === "fala" ? (
+                    <select
+                      className="sv-select sv-full"
+                      onChange={(e) => void persistProject({ video_model_id: e.target.value })}
+                      style={{ marginBottom: 8 }}
+                      value={videoModelId}
+                    >
+                      <option value="">Modelo de fala (lip-sync)</option>
+                      {talkingModels.map((m) => (
+                        <option key={m.id} value={m.id}>{modelLabelWithCost(m)}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <>
+                      <div className="sv-field-label" style={{ marginBottom: 6 }}>Fonte do vídeo</div>
+                      <div className="sv-type-row" style={{ marginBottom: 8 }}>
+                        <button
+                          className={`sv-seg${motionSource === "kenburns" ? " active" : ""}`}
+                          onClick={() => void persistScene(sel.id, { metadata: { ...(sel.metadata ?? {}), motion_source: "kenburns" } })}
+                          type="button"
+                        >
+                          Imagem (Ken Burns)
+                        </button>
+                        <button
+                          className={`sv-seg${motionSource === "ai" ? " active" : ""}`}
+                          onClick={() => void persistScene(sel.id, { metadata: { ...(sel.metadata ?? {}), motion_source: "ai" } })}
+                          type="button"
+                        >
+                          Movimento IA
+                        </button>
+                      </div>
+                      {motionSource === "ai" ? (
+                        <>
+                          <select
+                            className="sv-select sv-full"
+                            onChange={(e) => void persistProject({ motion_model_id: e.target.value })}
+                            style={{ marginBottom: 6 }}
+                            value={motionModelId}
+                          >
+                            <option value="">Modelo de movimento</option>
+                            {motionModels.map((m) => (
+                              <option key={m.id} value={m.id}>{modelLabelWithCost(m)}</option>
+                            ))}
+                          </select>
+                          <p className="text-xs muted" style={{ marginBottom: 8 }}>
+                            Modelo generativo pode <b>animar o rosto</b> do personagem (parecer que fala). Para pessoas, prefira Ken Burns.
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-xs muted" style={{ marginBottom: 8 }}>
+                          Imagem parada com leve zoom + narração. A pessoa não mexe/fala; duração = narração.
+                        </p>
+                      )}
+                    </>
+                  )}
                   <button
                     className="sv-btn-primary sv-full"
                     disabled={!sel.hedra_image_asset_id || !narrationVoiceId || sel.clip_status === "rendering" || sel.clip_status === "assembling"}
