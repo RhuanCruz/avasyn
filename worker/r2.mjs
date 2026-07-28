@@ -1,6 +1,9 @@
 // SigV4 presigner for Cloudflare R2 (S3-compatible). No SDK — uses node:crypto.
 import { createHmac, createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { stat } from "node:fs/promises";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 const REGION = "auto";
 const SERVICE = "s3";
@@ -96,13 +99,18 @@ function presign(method, key, expiresSeconds) {
   return `https://${host}/${encodeUriPath(bucket)}/${encodeUriPath(key)}?${canonicalQueryString}&X-Amz-Signature=${signature}`;
 }
 
+// Streaming em vez de readFile: um MP4 de algumas centenas de MB carregado inteiro na
+// memória, vezes os jobs em paralelo, é o que estourava a RAM do host e fazia o OOM
+// killer derrubar o worker. presign() assina com UNSIGNED-PAYLOAD, então o corpo não
+// precisa ser hasheado e pode ir em stream — só o Content-Length é obrigatório.
 export async function r2UploadFile(key, localPath, contentType) {
   const url = presign("PUT", key, 900);
-  const body = await readFile(localPath);
+  const { size } = await stat(localPath);
   const response = await fetch(url, {
     method: "PUT",
-    body,
-    headers: { "Content-Type": contentType },
+    body: createReadStream(localPath),
+    duplex: "half",
+    headers: { "Content-Type": contentType, "Content-Length": String(size) },
   });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -116,6 +124,5 @@ export async function r2DownloadFile(key, outputPath) {
   if (!response.ok) {
     throw new Error(`R2 download failed: ${response.status} ${response.statusText} (key=${key})`);
   }
-  const buffer = Buffer.from(await response.arrayBuffer());
-  await writeFile(outputPath, buffer);
+  await pipeline(Readable.fromWeb(response.body), createWriteStream(outputPath));
 }

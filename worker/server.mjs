@@ -1,8 +1,11 @@
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
+import { createWriteStream, openAsBlob } from "node:fs";
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 import { r2UploadFile, r2DownloadFile } from "./r2.mjs";
 
@@ -78,6 +81,8 @@ const workerRevision = process.env.AVASYN_WORKER_REVISION ?? "local";
 const instagramDownloadDelaySeconds = Number(
   process.env.INSTAGRAM_DOWNLOAD_DELAY_SECONDS ?? 2,
 );
+const maxConcurrentJobs = Math.max(1, Number(process.env.WORKER_MAX_CONCURRENT_JOBS ?? 1));
+const maxQueuedJobs = Math.max(1, Number(process.env.WORKER_MAX_QUEUED_JOBS ?? 3));
 
 if (!supabaseUrl || !serviceRoleKey) {
   throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required");
@@ -90,10 +95,50 @@ const supabase = createClient(supabaseUrl, serviceRoleKey, {
   },
 });
 
+// Fila interna com concorrência limitada. Antes disso cada POST começava um job na
+// hora, em paralelo e sem teto: uma automação que criava 10 jobs de uma vez punha 10
+// downloads + 10 ffmpeg simultâneos num host de 2 CPUs, e o OOM killer matava o worker
+// (SIGKILL/137) no meio do render — deixando os jobs em voo órfãos em "processing".
+// ffmpeg é CPU-bound, então mais de um render simultâneo não ganha tempo, só sobe o
+// pico de memória. Acima de maxQueuedJobs devolvemos 503 para o chamador segurar o
+// trabalho, em vez de acumular tudo aqui e morrer de novo.
+const jobQueue = [];
+let activeJobs = 0;
+
+function queueDepth() {
+  return activeJobs + jobQueue.length;
+}
+
+function enqueueTask(label, run) {
+  jobQueue.push({ label, run });
+  drainQueue();
+}
+
+function drainQueue() {
+  while (activeJobs < maxConcurrentJobs && jobQueue.length > 0) {
+    const task = jobQueue.shift();
+    activeJobs += 1;
+    Promise.resolve()
+      .then(task.run)
+      // O status do job já é gravado no banco por processJob (rendered/error), então
+      // aqui só registramos: o request HTTP que enfileirou já respondeu faz tempo.
+      .catch((error) => console.error(`${task.label} failed:`, error))
+      .finally(() => {
+        activeJobs -= 1;
+        drainQueue();
+      });
+  }
+}
+
 createServer(async (request, response) => {
   try {
     if (request.method === "GET" && request.url === "/health") {
-      return sendJson(response, 200, { ok: true, revision: workerRevision });
+      return sendJson(response, 200, {
+        ok: true,
+        revision: workerRevision,
+        active: activeJobs,
+        queued: jobQueue.length,
+      });
     }
 
     if (request.method === "POST" && request.url === "/search-tiktok") {
@@ -160,8 +205,20 @@ createServer(async (request, response) => {
       return sendJson(response, 400, { error: "jobId is required" });
     }
 
-    await processJob(String(body.jobId));
-    return sendJson(response, 200, { ok: true, jobId: body.jobId });
+    if (queueDepth() >= maxQueuedJobs) {
+      return sendJson(response, 503, {
+        error: "Worker busy",
+        queued: queueDepth(),
+      });
+    }
+
+    // Responde na hora e processa em background: um render leva minutos e a edge
+    // function que despacha não sobrevive tanto tempo. Segurar a conexão fazia o
+    // reel-processor marcar error por timeout enquanto o worker ainda estava
+    // renderizando o mesmo job. Quem grava o resultado é processJob, no banco.
+    const jobId = String(body.jobId);
+    enqueueTask(`job ${jobId}`, () => processJob(jobId));
+    return sendJson(response, 202, { accepted: true, jobId, queued: queueDepth() });
   } catch (error) {
     console.error(error);
     return sendJson(response, 500, {
@@ -870,9 +927,14 @@ async function uploadStorageFile(bucket, storagePath, localPath, contentType) {
     await r2UploadFile(`${bucket}/${storagePath}`, localPath, contentType);
     return;
   }
+  // openAsBlob dá um Blob lastreado no arquivo — o conteúdo só é lido conforme sobe,
+  // em vez de readFile trazer o MP4 inteiro pra memória antes do upload.
   const upload = await supabase.storage
     .from(bucket)
-    .upload(storagePath, await readFile(localPath), { contentType, upsert: true });
+    .upload(storagePath, await openAsBlob(localPath, { type: contentType }), {
+      contentType,
+      upsert: true,
+    });
   if (upload.error) throw upload.error;
 }
 
@@ -882,8 +944,7 @@ async function downloadHttpFile(url, outputPath, options = {}) {
   if (!response.ok) {
     throw new Error(`Failed to download media: ${response.status} ${response.statusText}`);
   }
-  const buffer = Buffer.from(await response.arrayBuffer());
-  await writeFile(outputPath, buffer);
+  await pipeline(Readable.fromWeb(response.body), createWriteStream(outputPath));
 }
 
 async function updateMediaImport(importId, values) {
@@ -959,7 +1020,7 @@ async function downloadStorageFile(bucket, storagePath, outputPath) {
   if (error || !data) {
     throw new Error(`Failed to download ${bucket} file`);
   }
-  await writeFile(outputPath, Buffer.from(await data.arrayBuffer()));
+  await pipeline(Readable.fromWeb(data.stream()), createWriteStream(outputPath));
 }
 
 function runCommand(command, args, options = {}) {

@@ -1,6 +1,8 @@
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
 import { createServiceClient, getAuthenticatedUser } from "../_shared/supabase.ts";
 
+declare const EdgeRuntime: { waitUntil: (promise: Promise<unknown>) => void };
+
 type QueueMessage = {
   msg_id: number;
   message: {
@@ -78,14 +80,36 @@ async function dispatchToWorker(jobId: string, msgId: number | null) {
       .update({ status: "processing", error_message: null })
       .eq("id", jobId);
 
-    const response = await fetch(`${workerUrl.replace(/\/$/, "")}/process-job`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(workerSecret ? { Authorization: `Bearer ${workerSecret}` } : {}),
-      },
-      body: JSON.stringify({ jobId }),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${workerUrl.replace(/\/$/, "")}/process-job`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(workerSecret ? { Authorization: `Bearer ${workerSecret}` } : {}),
+        },
+        body: JSON.stringify({ jobId }),
+      });
+    } catch (error) {
+      // Falha de rede (worker fora do ar ou reiniciando) é infra, não job ruim. O fetch
+      // do Deno lança TypeError com a mensagem crua do cliente Rust ("tcp connect error:
+      // Connection refused"), que nenhum padrão do retry-failed-jobs reconhecia. O
+      // prefixo estável deixa o auto-retry pegar e o erro legível na UI.
+      const detail = error instanceof Error ? error.message : String(error);
+      await markJobError(jobId, `worker_unreachable: ${detail}`);
+      return;
+    }
+
+    // O worker aplica backpressure quando a fila está cheia. Devolvemos o job para
+    // pending e deixamos a mensagem na pgmq, que reentrega depois — marcar error aqui
+    // queimaria um job que não tem nada de errado.
+    if (response.status === 503) {
+      await service
+        .from("reel_jobs")
+        .update({ status: "pending", error_message: null })
+        .eq("id", jobId);
+      return;
+    }
 
     if (!response.ok) {
       throw new Error(await response.text());
