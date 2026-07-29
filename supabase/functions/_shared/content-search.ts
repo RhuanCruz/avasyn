@@ -23,10 +23,24 @@ export type ProviderResult = {
   nextPageToken: string | null;
 };
 
+// "short" é < 4min, "medium" 4-20min, "long" > 20min, "any" sem filtro. Era fixo em
+// "short", o que descartava calado a maior parte do catálogo para qualquer tema que não
+// fosse corte curto. Segue como padrão para não mudar o comportamento atual sem querer,
+// mas agora dá para abrir por chamada.
+export type YouTubeVideoDuration = "any" | "short" | "medium" | "long";
+
 export type YouTubeSearchOptions = {
   order: "relevance" | "date" | "viewCount";
   recentDays: number | null;
+  videoDuration?: YouTubeVideoDuration;
 };
+
+// Sem estes dois parâmetros a API ranqueia por relevância global, e buscas em português
+// voltavam com conteúdo em inglês sobre o Brasil (John Oliver, CNN internacional) em
+// contas brasileiras. Fixo por ora; o passo seguinte é ler da automação, porque uma
+// automação em outro idioma não deveria ser forçada para pt/BR.
+const DEFAULT_RELEVANCE_LANGUAGE = "pt";
+const DEFAULT_REGION_CODE = "BR";
 
 export async function fetchYouTubeResults(
   query: string,
@@ -42,9 +56,14 @@ export async function fetchYouTubeResults(
   const searchUrl = new URL("https://www.googleapis.com/youtube/v3/search");
   searchUrl.searchParams.set("part", "snippet");
   searchUrl.searchParams.set("type", "video");
-  searchUrl.searchParams.set("videoDuration", "short");
+  const videoDuration = options.videoDuration ?? "short";
+  if (videoDuration !== "any") {
+    searchUrl.searchParams.set("videoDuration", videoDuration);
+  }
   searchUrl.searchParams.set("maxResults", String(Math.min(25, Math.max(limit * 2, limit))));
   searchUrl.searchParams.set("order", options.order);
+  searchUrl.searchParams.set("relevanceLanguage", DEFAULT_RELEVANCE_LANGUAGE);
+  searchUrl.searchParams.set("regionCode", DEFAULT_REGION_CODE);
   searchUrl.searchParams.set("q", query);
   searchUrl.searchParams.set("key", apiKey);
   if (pageToken) {
