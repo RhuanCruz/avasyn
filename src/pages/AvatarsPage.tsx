@@ -371,7 +371,7 @@ export function AvatarsPage() {
                   <Input
                     id="avatar-name"
                     onChange={(event) => setName(event.target.value)}
-                    placeholder="Ex.: React Neymar"
+                    placeholder="Ex.: React do dia"
                     required
                     value={name}
                   />

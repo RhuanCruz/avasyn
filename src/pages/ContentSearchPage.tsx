@@ -36,7 +36,7 @@ type SearchContentResponse = {
   nextPageTokens?: ContentSearchPageTokens;
 };
 
-const DEFAULT_QUERY = "football shorts";
+const DEFAULT_QUERY = "shorts em alta";
 const DEFAULT_RECENT_DAYS = 7;
 
 type QuickReactModalState = {
@@ -144,7 +144,7 @@ export function ContentSearchPage() {
                 onKeyDown={(event) => {
                   if (event.key === "Enter") void searchContent();
                 }}
-                placeholder="Neymar edits, gol bicicleta, futebol engraçado..."
+                placeholder="Ex: cortes engraçados, receitas rápidas, notícias..."
                 value={query}
               />
               <div className="flex gap-2">

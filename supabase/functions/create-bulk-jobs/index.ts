@@ -78,6 +78,9 @@ Deno.serve(async (request) => {
       captionBrief: String(body.caption ?? ""),
       combinations,
       overlayBrief: String(body.overlayText ?? ""),
+      // Termos que o texto gerado não pode conter, por tema. Sem isso o filtro fica só
+      // na instrução do prompt — que é o controle principal de qualquer forma.
+      blockedTerms: uniqueStrings(body.blockedTerms),
     });
 
     const rows = combinations.map(({ reactionId, sourceVideo }, index) => ({
@@ -127,10 +130,12 @@ async function generateBulkTexts({
   captionBrief,
   combinations,
   overlayBrief,
+  blockedTerms = [],
 }: {
   captionBrief: string;
   combinations: BulkTextCombination[];
   overlayBrief: string;
+  blockedTerms?: string[];
 }): Promise<GeneratedBulkText[]> {
   const parsed = await createStructuredResponse<{ items?: GeneratedBulkText[] }>({
     input: [
@@ -140,14 +145,14 @@ async function generateBulkTexts({
           {
             type: "input_text",
             text: [
-              "Você gera textos curtos para Reels de futebol em português do Brasil.",
+              "Você gera textos curtos para Reels em português do Brasil.",
               "Responda apenas no JSON schema solicitado.",
               "Crie exatamente um item por combinação recebida, na mesma ordem.",
-              "Atenção: você NÃO conhece o conteúdo visual real dos vídeos. Não invente o que aconteceu no lance.",
-              "overlayText deve ser genérico, funcionar para qualquer lance, ter no máximo 3 palavras, sem emoji, sem hashtag e sem pontuação exagerada.",
+              "Atenção: você NÃO conhece o conteúdo visual real dos vídeos. Não invente o que aconteceu neles.",
+              "overlayText deve ser genérico, funcionar para qualquer vídeo, ter no máximo 3 palavras, sem emoji, sem hashtag e sem pontuação exagerada.",
               "caption deve ser genérica, curta, variada entre itens e não pode afirmar eventos específicos do vídeo.",
-              "Evite palavras específicas como gol, golaço, defesa, falta, pênalti, drible, chute, goleiro ou craque.",
-              "Prefira chamadas neutras como: Olha isso, Que lance, Sem palavras, Que cena, Essa reação diz tudo.",
+              "Não cite ações, jogadas, resultados, nomes ou qualquer detalhe concreto do que aparece na tela — você não viu.",
+              "Prefira chamadas neutras como: Olha isso, Que momento, Sem palavras, Que cena, Essa reação diz tudo.",
               "Evite repetir overlayText ou caption dentro do mesmo lote.",
             ].join("\n"),
           },
@@ -203,7 +208,7 @@ async function generateBulkTexts({
     throw new Error("Bulk text generation returned an invalid item count");
   }
 
-  return normalizeGeneratedTexts(parsed.items, combinations);
+  return normalizeGeneratedTexts(parsed.items, combinations, blockedTerms);
 }
 
 async function triggerProcessor(

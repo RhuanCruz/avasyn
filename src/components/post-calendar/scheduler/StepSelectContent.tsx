@@ -231,7 +231,7 @@ export function StepSelectContent({ avatarId, initialItems, onNext }: Props) {
               className="input"
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") void handleSearch(); }}
-              placeholder="Ex: football shorts, gol bicicleta..."
+              placeholder="Ex: cortes virais, momentos engraçados..."
               value={searchQuery}
             />
             <Button disabled={searching} onClick={() => void handleSearch()}>

@@ -38,7 +38,7 @@ export function CuratePage() {
   const [results, setResults] = useState<TikTokSearchResult[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [reactionId, setReactionId] = useState("");
-  const [caption, setCaption] = useState("Melhor lance do dia #futebol");
+  const [caption, setCaption] = useState("Melhor momento do dia");
   const [overlayText, setOverlayText] = useState("MELHOR LANCE DO DIA");
   const [creating, setCreating] = useState(false);
   const [createdJobIds, setCreatedJobIds] = useState<string[]>([]);
@@ -151,7 +151,7 @@ export function CuratePage() {
                     <Input
                       id="tiktok-query"
                       onChange={(event) => setQuery(event.target.value)}
-                      placeholder="gol bicicleta meme"
+                      placeholder="cortes virais, memes..."
                       required
                       value={query}
                     />

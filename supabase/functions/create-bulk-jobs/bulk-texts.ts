@@ -27,38 +27,24 @@ const genericOverlayTexts = [
 ];
 
 const genericCaptions = [
-  "Essa reação diz tudo. #futebol",
-  "Não tinha como ignorar esse lance. #futebol",
-  "Olha até o final. #futebol",
-  "Esse momento merece replay. #futebol",
-  "A reação veio na hora certa. #futebol",
-  "Mais um daqueles lances para rever. #futebol",
-  "Esse vídeo ficou impossível de passar batido. #futebol",
-  "Quando o lance pede reação. #futebol",
+  "Essa reação diz tudo.",
+  "Não tinha como ignorar esse momento.",
+  "Olha até o final.",
+  "Esse momento merece replay.",
+  "A reação veio na hora certa.",
+  "Mais um daqueles para rever.",
+  "Esse vídeo ficou impossível de passar batido.",
+  "Quando o momento pede reação.",
 ];
 
-const contentSpecificTerms = [
-  "assistencia",
-  "bicicleta",
-  "chute",
-  "craque",
-  "defesa",
-  "defendeu",
-  "drible",
-  "falta",
-  "finalizacao",
-  "frango",
-  "goleiro",
-  "gol",
-  "golaco",
-  "penalti",
-  "pênalti",
-  "salvou",
-];
-
+// blockedTerms existe porque o modelo não vê o vídeo e não pode afirmar o que aconteceu
+// nele. Antes era uma lista fixa de futebol ("gol", "golaço", "pênalti", "goleiro"...),
+// o que embutia um tema no produto inteiro. Agora quem chama informa os termos do seu
+// assunto; vazio significa confiar só na instrução do prompt.
 export function normalizeGeneratedTexts(
   items: GeneratedBulkText[],
   combinations: BulkTextCombination[],
+  blockedTerms: string[] = [],
 ) {
   const usedCaptions = new Set<string>();
   const usedOverlays = new Set<string>();
@@ -67,7 +53,7 @@ export function normalizeGeneratedTexts(
     let overlayText = sanitizeOverlayText(item.overlayText);
     if (
       !overlayText ||
-      hasContentSpecificGuess(overlayText) ||
+      hasContentSpecificGuess(overlayText, blockedTerms) ||
       usedOverlays.has(overlayText.toLowerCase())
     ) {
       overlayText = nextUnused(genericOverlayTexts, usedOverlays, index);
@@ -78,7 +64,7 @@ export function normalizeGeneratedTexts(
     let caption = sanitizeCaption(item.caption);
     if (
       !caption ||
-      hasContentSpecificGuess(caption) ||
+      hasContentSpecificGuess(caption, blockedTerms) ||
       usedCaptions.has(caption.toLowerCase())
     ) {
       caption = nextUnused(genericCaptions, usedCaptions, index);
@@ -121,9 +107,13 @@ function sanitizeCaption(value: string) {
   return String(value).replace(/\s+/g, " ").trim().slice(0, 280);
 }
 
-function hasContentSpecificGuess(value: string) {
+function hasContentSpecificGuess(value: string, blockedTerms: string[]) {
+  if (blockedTerms.length === 0) return false;
   const normalized = normalizeForMatch(value);
-  return contentSpecificTerms.some((term) => normalized.includes(normalizeForMatch(term)));
+  return blockedTerms.some((term) => {
+    const normalizedTerm = normalizeForMatch(term);
+    return normalizedTerm.length > 0 && normalized.includes(normalizedTerm);
+  });
 }
 
 function normalizeForMatch(value: string) {

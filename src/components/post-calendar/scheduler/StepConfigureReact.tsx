@@ -188,7 +188,7 @@ export function StepConfigureReact({ avatarId, initialConfig, items, onBack, onN
           <input
             className="input"
             onChange={(e) => setHashtags(e.target.value)}
-            placeholder="#futebol #viral #reels"
+            placeholder="#viral #reels"
             value={hashtags}
           />
         </Field>

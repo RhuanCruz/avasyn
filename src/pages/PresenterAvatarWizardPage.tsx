@@ -543,7 +543,7 @@ export function PresenterAvatarWizardPage() {
                     <Textarea
                       id="visual-description"
                       onChange={(event) => setVisualDescription(event.target.value)}
-                      placeholder="Ex.: apresentadora brasileira de futebol, carismática, camisa social azul, estúdio esportivo moderno."
+                      placeholder="Ex.: apresentadora brasileira carismática, camisa social azul, estúdio moderno."
                       rows={5}
                       value={visualDescription}
                     />

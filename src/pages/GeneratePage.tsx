@@ -29,7 +29,7 @@ type CreateJobsResponse = {
 export function GeneratePage() {
   const [clipUrls, setClipUrls] = useState("");
   const [reactionId, setReactionId] = useState("");
-  const [caption, setCaption] = useState("Melhor lance do dia #futebol");
+  const [caption, setCaption] = useState("Melhor momento do dia");
   const [overlayText, setOverlayText] = useState("MELHOR LANCE DO DIA");
   const [submitting, setSubmitting] = useState(false);
   const [createdJobIds, setCreatedJobIds] = useState<string[]>([]);

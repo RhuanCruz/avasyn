@@ -123,7 +123,7 @@ export function AutomationWizard({ accounts, reactions, existing, initialTheme, 
                 <FieldLabel>Nome da automação</FieldLabel>
                 <Input
                   onChange={(e) => set({ name: e.target.value })}
-                  placeholder="Ex: Reacts de futebol"
+                  placeholder="Ex: Reacts do meu nicho"
                   value={draft.name}
                 />
               </Field>
@@ -135,7 +135,7 @@ export function AutomationWizard({ accounts, reactions, existing, initialTheme, 
                 <PillListInput
                   normalize={normalizeQuery}
                   onChange={(v) => set({ search_queries: v.slice(0, MAX_QUERIES) })}
-                  placeholder="Ex: Neymar edits"
+                  placeholder="Ex: cortes do meu nicho"
                   values={draft.search_queries}
                 />
               </Field>
@@ -274,9 +274,9 @@ export function AutomationWizard({ accounts, reactions, existing, initialTheme, 
                 onIdeas={(v) => set({ caption_ideas: v })}
                 aiInstructions={draft.caption_ai_instructions}
                 onAiInstructions={(v) => set({ caption_ai_instructions: v })}
-                fixedPlaceholder="React do dia 🔥 #futebol"
+                fixedPlaceholder="React do dia 🔥"
                 ideasPlaceholder="React novo no ar."
-                aiPlaceholder="Ex: tom empolgado, 1-2 frases, termine com #futebol #neymar"
+                aiPlaceholder="Ex: tom empolgado, 1-2 frases, termine com 2 hashtags do tema"
                 aiHint="Instrua o estilo, tamanho e hashtags da legenda. Se a OpenAI falhar, a execução falha."
               />
             </FieldGroup>

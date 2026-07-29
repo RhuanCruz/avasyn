@@ -48,7 +48,7 @@ export function BulkEditorPage() {
   const { avatars, selectedAvatar, selectedAvatarId, setSelectedAvatarId } = useAvatarState(preferredAvatarId);
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
   const [selectedReactionIds, setSelectedReactionIds] = useState<string[]>([]);
-  const [caption, setCaption] = useState("Legenda curta de futebol com tom de reação");
+  const [caption, setCaption] = useState("Legenda curta com tom de reação");
   const [overlayText, setOverlayText] = useState("Frase simples de até 3 palavras sobre o lance");
   const [noOverlay, setNoOverlay] = useState(false);
   const [creating, setCreating] = useState(false);

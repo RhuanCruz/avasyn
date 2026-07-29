@@ -25,7 +25,7 @@ const DEFAULT_STATE: WizardState = {
     reactionIds: [],
     overlayPhrases: ["Olha isso", "Que lance", "Sem palavras", "Que cena", "Essa é braba"],
     captions: ["Essa reação diz tudo 🔥", "Sem palavras pra isso 😮", "React do dia 🎯"],
-    hashtags: "#futebol #viral #reels",
+    hashtags: "#viral #reels",
   },
   scheduleConfig: {
     weekdays: [1, 3, 5],

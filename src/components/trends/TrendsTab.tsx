@@ -209,7 +209,7 @@ export function TrendsTab({ avatarId, onCreateAutomation }: Props) {
         <PillListInput
           normalize={normalizeQuery}
           onChange={(next) => void applyThemes(next)}
-          placeholder="futebol, gols, pets engraçados..."
+          placeholder="pets engraçados, cortes virais, receitas..."
           values={themes}
         />
       </div>
