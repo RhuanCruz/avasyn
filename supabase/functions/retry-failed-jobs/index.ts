@@ -36,6 +36,13 @@ const RETRYABLE_PATTERNS = [
 // pegar job legitimamente na fila do worker.
 const STUCK_PROCESSING_MINUTES = 45;
 
+// Job recusado pelo 503 do worker volta para "pending" e ninguém mais o dispara, porque o
+// scan automático só olha status = 'error'. Isso era coberto por um cron que drenava a
+// pgmq, mas a fila guardava uma mensagem órfã por job já criado desde junho — drená-la
+// republicou cerca de 180 posts em 28/07. Varrer por status nunca ressuscita conteúdo
+// antigo: um job publicado não está em "pending".
+const STALE_PENDING_MINUTES = 10;
+
 // Exponential backoff in minutes by retry_count: 15, 30, 60, 120, 240 (capped).
 function backoffMinutes(retryCount: number): number {
   return Math.min(240, 15 * Math.pow(2, retryCount));
@@ -72,6 +79,7 @@ Deno.serve(async (request) => {
     // error. Assim eles caem no scan normal na próxima passada e herdam backoff e cap
     // de retentativas, em vez de precisarem de um caminho paralelo só para eles.
     const reaped = await reapStuckProcessing(service);
+    const redispatched = await redispatchStalePending(service);
 
     // Automatic scan: retryable failures, capped retries.
     const orFilter = RETRYABLE_PATTERNS.map((p) => `error_message.ilike.%${p}%`).join(",");
@@ -92,7 +100,7 @@ Deno.serve(async (request) => {
       retried++;
     }
 
-    return jsonResponse({ retried, scanned: jobs?.length ?? 0, reaped });
+    return jsonResponse({ retried, scanned: jobs?.length ?? 0, reaped, redispatched });
   } catch (error) {
     return jsonResponse(
       { error: error instanceof Error ? error.message : "Unknown error" },
@@ -100,6 +108,25 @@ Deno.serve(async (request) => {
     );
   }
 });
+
+async function redispatchStalePending(service: ServiceClient): Promise<number> {
+  const cutoff = new Date(Date.now() - STALE_PENDING_MINUTES * 60_000).toISOString();
+  const { data: stale, error } = await service
+    .from("reel_jobs")
+    .select("id")
+    .eq("status", "pending")
+    .lt("updated_at", cutoff)
+    .limit(20);
+  if (error) throw error;
+
+  for (const job of stale ?? []) {
+    // Sem mexer em retry_count nem em last_retried_at: backpressure não é falha do job, e
+    // queimar retentativa aqui mataria um job só por o worker estar ocupado. O reel-processor
+    // reivindica o job antes de despachar, então uma segunda passada não duplica nada.
+    EdgeRuntime.waitUntil(triggerProcessor(job.id as string));
+  }
+  return stale?.length ?? 0;
+}
 
 async function reapStuckProcessing(service: ServiceClient): Promise<number> {
   const cutoff = new Date(Date.now() - STUCK_PROCESSING_MINUTES * 60_000).toISOString();
