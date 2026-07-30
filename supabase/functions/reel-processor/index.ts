@@ -3,6 +3,8 @@ import { createServiceClient, getAuthenticatedUser } from "../_shared/supabase.t
 
 declare const EdgeRuntime: { waitUntil: (promise: Promise<unknown>) => void };
 
+type ServiceClient = ReturnType<typeof createServiceClient>;
+
 type QueueMessage = {
   msg_id: number;
   message: {
@@ -10,19 +12,32 @@ type QueueMessage = {
   };
 };
 
+// Só estes dois estados podem ser reivindicados. "processing" já tem alguém trabalhando;
+// "rendered", "posting" e "posted" já passaram do render, e reprocessá-los publicaria o
+// mesmo vídeo outra vez.
+const CLAIMABLE_STATUSES = ["pending", "error"];
+
 Deno.serve(async (request) => {
   const options = handleOptions(request);
   if (options) return options;
 
   try {
+    const service = createServiceClient();
     const body = await request.json().catch(() => ({}));
     if (body.jobId) {
-      await assertCanProcessJob(request, String(body.jobId));
-      EdgeRuntime.waitUntil(dispatchToWorker(String(body.jobId), null));
-      return jsonResponse({ accepted: true, jobId: body.jobId });
+      const jobId = String(body.jobId);
+      await assertCanProcessJob(request, jobId);
+      if (!(await claimJob(service, jobId))) {
+        return jsonResponse({
+          skipped: true,
+          jobId,
+          reason: "Job já foi processado ou está em andamento",
+        });
+      }
+      EdgeRuntime.waitUntil(dispatchToWorker(jobId, null));
+      return jsonResponse({ accepted: true, jobId });
     }
 
-    const service = createServiceClient();
     const { data: messages, error } = await service.rpc("read_reel_job_messages", {
       qty: 1,
     });
@@ -31,8 +46,16 @@ Deno.serve(async (request) => {
     const message = (messages as QueueMessage[] | null)?.[0];
     if (!message) return jsonResponse({ processed: 0 });
 
-    EdgeRuntime.waitUntil(dispatchToWorker(message.message.job_id, message.msg_id));
-    return jsonResponse({ accepted: true, jobId: message.message.job_id });
+    const jobId = message.message.job_id;
+    if (!(await claimJob(service, jobId))) {
+      // Mensagem órfã de um job que já foi processado por outro caminho. Descartar aqui é
+      // o que impede a fila de republicar conteúdo antigo.
+      await service.rpc("delete_reel_job_message", { msg_id: message.msg_id });
+      return jsonResponse({ skipped: true, jobId, reason: "Mensagem obsoleta descartada" });
+    }
+
+    EdgeRuntime.waitUntil(dispatchToWorker(jobId, message.msg_id));
+    return jsonResponse({ accepted: true, jobId });
   } catch (error) {
     return jsonResponse(
       { error: error instanceof Error ? error.message : "Unknown error" },
@@ -61,6 +84,22 @@ async function assertCanProcessJob(request: Request, jobId: string) {
   }
 }
 
+// Reivindica o job de forma atômica: o UPDATE condicional garante que só um chamador
+// consiga mover pending/error para processing. Todos os caminhos de criação enfileiram na
+// pgmq E chamam o reel-processor direto com o jobId, então sem esta trava o mesmo job era
+// renderizado e publicado duas vezes.
+async function claimJob(service: ServiceClient, jobId: string) {
+  const { data, error } = await service
+    .from("reel_jobs")
+    .update({ status: "processing", error_message: null })
+    .eq("id", jobId)
+    .in("status", CLAIMABLE_STATUSES)
+    .select("id");
+
+  if (error) throw error;
+  return (data?.length ?? 0) > 0;
+}
+
 async function dispatchToWorker(jobId: string, msgId: number | null) {
   const service = createServiceClient();
   const workerUrl = Deno.env.get("VIDEO_WORKER_URL");
@@ -75,11 +114,7 @@ async function dispatchToWorker(jobId: string, msgId: number | null) {
   }
 
   try {
-    await service
-      .from("reel_jobs")
-      .update({ status: "processing", error_message: null })
-      .eq("id", jobId);
-
+    // O status já foi movido para processing por claimJob antes desta função ser agendada.
     let response: Response;
     try {
       response = await fetch(`${workerUrl.replace(/\/$/, "")}/process-job`, {
@@ -115,10 +150,14 @@ async function dispatchToWorker(jobId: string, msgId: number | null) {
       throw new Error(await response.text());
     }
 
+    // O worker aceitou o job. A mensagem correspondente na pgmq não serve mais para nada:
+    // se ficar na fila, uma leitura futura reprocessa e republica um job já publicado.
+    // No caminho direto não temos o msg_id, então limpamos por job_id — era exatamente
+    // esse vazamento que enchia a fila com uma mensagem órfã por job criado.
     if (msgId !== null) {
-      await service.rpc("delete_reel_job_message", {
-        msg_id: msgId,
-      });
+      await service.rpc("delete_reel_job_message", { msg_id: msgId });
+    } else {
+      await service.rpc("delete_reel_job_messages_for_job", { job_id: jobId });
     }
   } catch (error) {
     await markJobError(

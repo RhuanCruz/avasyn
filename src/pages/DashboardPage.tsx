@@ -90,8 +90,17 @@ export function DashboardPage() {
 
   async function processJob(jobId: string) {
     try {
-      await invokeFunction("reel-processor", { jobId });
-      toast.success("Job enviado para processamento");
+      // O reel-processor recusa jobs que já passaram do render, para não republicar. Sem
+      // mostrar isso, o toast de sucesso mentia quando nada era feito.
+      const result = await invokeFunction<{ skipped?: boolean; reason?: string }>(
+        "reel-processor",
+        { jobId },
+      );
+      if (result?.skipped) {
+        toast.info(result.reason ?? "Job não precisa ser processado");
+      } else {
+        toast.success("Job enviado para processamento");
+      }
       await snapshot.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao processar job");
@@ -248,15 +257,19 @@ export function DashboardPage() {
                         </td>
                         <td>
                           <div className="flex items-center gap-2">
-                            {job.status === "rendered" && job.output_path ? (
+                            {job.output_path ? (
                               <Button onClick={() => void openGeneratedVideo(job)} size="sm" variant="outline">
                                 Ver
                               </Button>
-                            ) : (
+                            ) : null}
+                            {/* "Rodar" só faz sentido para job que ainda não renderizou.
+                                Antes aparecia também em posted/posting, e clicar ali
+                                republicava o vídeo. */}
+                            {job.status === "pending" || job.status === "error" ? (
                               <Button onClick={() => void processJob(job.id)} size="sm" variant="outline">
                                 Rodar
                               </Button>
-                            )}
+                            ) : null}
                           </div>
                         </td>
                       </tr>

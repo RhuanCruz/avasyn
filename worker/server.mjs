@@ -335,6 +335,21 @@ async function updateScene(sceneId, { clip_status, clip_url, error_message, meta
 
 async function processJob(jobId) {
   const job = await findJob(jobId);
+
+  // Segunda linha de defesa contra republicação. O status não serve para este teste porque
+  // quem despacha já o moveu para "processing"; posted_at/zernio_post_id são os únicos
+  // sinais duráveis de que este job foi ao ar. Importa porque o render termina gravando
+  // "rendered", o que reabre a trava de idempotência do post-to-zernio e faria o mesmo
+  // vídeo ser publicado de novo.
+  if (job.posted_at || job.zernio_post_id) {
+    console.warn(`job ${jobId} ja foi publicado (posted_at=${job.posted_at ?? "null"}); ignorando`);
+    await updateJob(jobId, {
+      status: job.posted_at ? "posted" : "posting",
+      error_message: null,
+    });
+    return;
+  }
+
   await hydrateSourceVideo(job);
 
   await updateJob(jobId, { status: "processing", error_message: null });
