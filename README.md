@@ -84,10 +84,33 @@ MVP interno para gerar e postar Instagram Reels usando Supabase e Zernio.
    O Supabase Edge Runtime não permite subprocessos. Por isso `yt-dlp` e
    `ffmpeg` rodam em um worker externo.
 
+   > **Como o deploy de produção funciona hoje (Portainer + Docker Swarm).**
+   > O stack `avasyn-worker` **não usa** `worker/Dockerfile`. Ele roda a imagem base
+   > `node:22-bookworm-slim` e monta o ambiente no `command:` a cada boot do
+   > container: `apt-get` (ffmpeg, git, python3), `pip install "yt-dlp[...]"
+   > gallery-dl yt-dlp-ejs`, `git reset --hard origin/main`, `npm install` e
+   > `node worker/server.mjs`.
+   >
+   > Duas consequências importantes:
+   >
+   > 1. **Reiniciar o serviço já é o deploy** — o container puxa `main` sozinho.
+   >    É isso que `.github/workflows/deploy-worker.yml` dispara via webhook do
+   >    Portainer; não há build de imagem em lugar nenhum.
+   > 2. **As dependências de sistema vivem no compose, não no Dockerfile.** Mudar
+   >    `worker/Dockerfile` não afeta produção. Se precisar de um pacote novo (foi o
+   >    caso do `curl-cffi` para o TikTok), edite o `pip install` do stack **e** o
+   >    Dockerfile, para os dois caminhos não divergirem.
+   >
+   > O `worker/Dockerfile` continua sendo a forma recomendada e é o que as
+   > instruções abaixo descrevem — migrar para ele tira o `apt`/`pip`/`npm` do
+   > caminho crítico de cada restart.
+
    Em Railway/Render/Fly, aponte o deploy para `worker/Dockerfile` e configure:
 
    ```bash
-   SUPABASE_URL=https://odbuwhhfwxttzbbjpsuh.supabase.co
+   # O ref antigo que estava aqui não resolve mais (NXDOMAIN). Pegue o atual em
+   # Supabase -> Project Settings -> Data API -> Project URL.
+   SUPABASE_URL=https://<project-ref>.supabase.co
    SUPABASE_SERVICE_ROLE_KEY=
    VIDEO_WORKER_SECRET=
    HUNTAPI_API_KEY=

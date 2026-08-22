@@ -1,0 +1,87 @@
+# Deploy do worker de vídeo a cada push em main.
+#
+# Não constrói imagem nenhuma: o stack do Portainer roda `node:22-bookworm-slim` e faz
+# `git reset --hard origin/main` no boot do container. Ou seja, reiniciar o serviço JÁ é o
+# deploy. Este workflow só dispara esse reinício via webhook do Portainer.
+#
+# Configuração (uma vez):
+#   1. Portainer -> Services -> avasyn-worker_avasyn-worker -> ative "Service webhook"
+#      e copie a URL gerada.
+#   2. GitHub -> Settings -> Secrets and variables -> Actions -> New repository secret:
+#        PORTAINER_WEBHOOK_URL = a URL do passo 1
+#        WORKER_HEALTH_URL     = http://SEU-HOST:8080/health   (opcional, habilita a verificação)
+
+name: Deploy worker
+
+on:
+  push:
+    branches: [main]
+    # O worker clona o repositório inteiro, mas só este código afeta o que ele executa.
+    # Sem o filtro, uma mudança de CSS custaria um ciclo de apt + pip + npm de vários
+    # minutos e uma janela em que o worker está fora do ar.
+    paths:
+      - "worker/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/deploy-worker.yml"
+  workflow_dispatch:
+
+concurrency:
+  # Dois deploys simultâneos reiniciariam o serviço no meio do bootstrap do outro.
+  group: deploy-worker
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # O contexto `secrets` não existe em `if` de step; `env` existe. Por isso o segredo é
+    # promovido a env aqui, para o passo de verificação conseguir se auto-desabilitar
+    # quando a URL não estiver configurada.
+    env:
+      HEALTH_URL: ${{ secrets.WORKER_HEALTH_URL }}
+
+    steps:
+      - name: Disparar redeploy no Portainer
+        env:
+          WEBHOOK_URL: ${{ secrets.PORTAINER_WEBHOOK_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${WEBHOOK_URL}" ]; then
+            echo "::error::PORTAINER_WEBHOOK_URL não está configurado nos secrets do repositório."
+            exit 1
+          fi
+          status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST --max-time 60 "${WEBHOOK_URL}")
+          echo "Portainer respondeu HTTP ${status}"
+          case "${status}" in
+            2*) echo "Redeploy solicitado." ;;
+            *) echo "::error::Portainer recusou o webhook (HTTP ${status})."; exit 1 ;;
+          esac
+
+      - name: Esperar o worker voltar e conferir o ambiente
+        if: env.HEALTH_URL != ''
+        run: |
+          set -uo pipefail
+          # O boot instala apt + pip + npm antes de subir o servidor, então demora.
+          # 40 tentativas x 15s = 10 minutos de tolerância.
+          for attempt in $(seq 1 40); do
+            body=$(curl -sS --max-time 10 "${HEALTH_URL}" 2>/dev/null || true)
+            if [ -n "${body}" ] && echo "${body}" | jq -e '.ok == true' >/dev/null 2>&1; then
+              echo "Worker no ar após ${attempt} tentativa(s)."
+              echo "${body}" | jq '{revision, active, queued, ytdlp, providers, cookieSource: .cookies.youtube.source}'
+
+              # A checagem que importa: sem curl_cffi o TikTok volta a falhar com
+              # "no impersonate target is available". Falhar aqui é melhor que
+              # descobrir com job quebrado horas depois.
+              if echo "${body}" | jq -e '.ytdlp.impersonation.available == false' >/dev/null 2>&1; then
+                echo "::error::yt-dlp subiu sem suporte a impersonação. O stack precisa instalar yt-dlp[default,curl-cffi]."
+                exit 1
+              fi
+              exit 0
+            fi
+            echo "Tentativa ${attempt}/40 — ainda subindo..."
+            sleep 15
+          done
+          echo "::error::O worker não respondeu em /health dentro de 10 minutos."
+          exit 1
