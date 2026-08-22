@@ -1,5 +1,6 @@
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
 import { createServiceClient, getAuthenticatedUser } from "../_shared/supabase.ts";
+import { readWorkerError } from "../_shared/worker.ts";
 
 type WorkerTikTokResult = {
   resultUrl: string;
@@ -103,7 +104,7 @@ async function fetchWorkerResults(query: string, limit: number) {
   });
 
   if (!response.ok) {
-    const text = await response.text();
+    const text = await readWorkerError(response);
     if (response.status === 404) {
       throw new Error(
         "TikTok worker search endpoint not found. Rebuild/redeploy the video worker container with the latest code.",

@@ -11,6 +11,7 @@ import { Icon, Pill } from "@/components/operator-ui";
 import { useRenderQueue } from "@/components/render-queue/RenderQueueContext";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { invokeFunction } from "@/lib/api";
+import { formatMediaImportError } from "@/lib/media-errors";
 import { supabase } from "@/lib/supabase";
 import { getStorageSignedUrl } from "@/lib/storage-client";
 import type {
@@ -659,22 +660,3 @@ function mergeSourceVideos(current: SourceVideo[], next: SourceVideo[]) {
   return Array.from(byId.values());
 }
 
-export function formatMediaImportError(message: string | null) {
-  if (!message) return "Falha ao importar mídia";
-  if (/All YouTube download providers failed/i.test(message)) {
-    return "Não foi possível baixar este vídeo pelo SaveNow, Apify ou yt-dlp. Tente outro vídeo ou verifique o actor/chave da Apify no worker.";
-  }
-  if (/Apify YouTube downloader returned demo output|actor subscription|APIFY_YOUTUBE_DOWNLOADER_ACTOR_ID|downloadable YouTube video URL/i.test(message)) {
-    return "A Apify não retornou um MP4 baixável. Verifique se o actor do YouTube está liberado/subscrito na sua conta Apify.";
-  }
-  if (/SAVENOW_API_KEY|SaveNow/i.test(message)) {
-    return "A API SaveNow não retornou um vídeo baixável. Verifique a chave/formato do worker e tente novamente.";
-  }
-  if (/Sign in to confirm you.?re not a bot|cookies-from-browser|--cookies/i.test(message)) {
-    return "YouTube bloqueou o download. Atualize YOUTUBE_COOKIES_BASE64 no worker e rode novamente.";
-  }
-  if (/Unsupported url|Unable to handle request/i.test(message)) {
-    return "Não foi possível baixar este link. Tente outro vídeo ou verifique o worker.";
-  }
-  return message;
-}

@@ -1,5 +1,6 @@
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
 import { createServiceClient, getAuthenticatedUser } from "../_shared/supabase.ts";
+import { readWorkerError } from "../_shared/worker.ts";
 
 declare const EdgeRuntime: { waitUntil: (promise: Promise<unknown>) => void };
 
@@ -147,7 +148,7 @@ async function dispatchToWorker(jobId: string, msgId: number | null) {
     }
 
     if (!response.ok) {
-      throw new Error(await response.text());
+      throw new Error(await readWorkerError(response));
     }
 
     // O worker aceitou o job. A mensagem correspondente na pgmq não serve mais para nada:
@@ -169,6 +170,17 @@ async function dispatchToWorker(jobId: string, msgId: number | null) {
 
 async function markJobError(jobId: string, errorMessage: string) {
   const service = createServiceClient();
+
+  // processJob writes its own, more specific error before failing the request;
+  // keep that one rather than replacing it with the dispatch-level message.
+  const { data } = await service
+    .from("reel_jobs")
+    .select("status, error_message")
+    .eq("id", jobId)
+    .maybeSingle();
+
+  if (data?.status === "error" && data?.error_message) return;
+
   await service
     .from("reel_jobs")
     .update({ status: "error", error_message: errorMessage })

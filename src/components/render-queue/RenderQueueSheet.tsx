@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Icon, Pill } from "@/components/operator-ui";
 import { Button } from "@/components/ui/button";
 import { StorageVideoPreview } from "@/components/VideoPreview";
+import { formatMediaImportError } from "@/lib/media-errors";
 
 import { isActiveStatus, useRenderQueue } from "./RenderQueueContext";
 import type { RenderItem, RenderItemStatus } from "./RenderQueueContext";
@@ -273,7 +274,9 @@ function RenderRow({ item, onOpen }: { item: RenderItem; onOpen: () => void }) {
           {viewable ? <span className="text-xs muted">Toque para ver</span> : null}
         </div>
         {item.errorMessage ? (
-          <span className="line-clamp-2 text-xs" style={{ color: "var(--err)" }}>{item.errorMessage}</span>
+          <span className="line-clamp-2 text-xs" style={{ color: "var(--err)" }}>
+            {formatMediaImportError(item.errorMessage)}
+          </span>
         ) : null}
       </div>
 

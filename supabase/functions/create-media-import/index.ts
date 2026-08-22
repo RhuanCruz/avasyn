@@ -4,6 +4,7 @@ import {
   getAuthenticatedUser,
   resolveOwnedAvatar,
 } from "../_shared/supabase.ts";
+import { readWorkerError } from "../_shared/worker.ts";
 
 declare const EdgeRuntime: { waitUntil: (promise: Promise<unknown>) => void };
 
@@ -96,12 +97,39 @@ async function dispatchImport(importId: string) {
       },
     );
 
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await readWorkerError(response));
   } catch (error) {
-    await service.from("media_imports").update({
-      status: "error",
-      error_message: error instanceof Error ? error.message : "Worker dispatch failed",
-      completed_at: new Date().toISOString(),
-    }).eq("id", importId);
+    await markImportFailed(
+      service,
+      importId,
+      error instanceof Error ? error.message : "Worker dispatch failed",
+    );
   }
+}
+
+/**
+ * The worker records a detailed error on the row *before* it answers with a
+ * 500, so overwriting it here would replace a useful message ("rebuild the
+ * worker with curl-cffi") with the transport-level one. Only fill in when the
+ * import never reached a terminal state — i.e. the worker never got that far.
+ */
+async function markImportFailed(
+  service: ReturnType<typeof createServiceClient>,
+  importId: string,
+  message: string,
+) {
+  const { data } = await service
+    .from("media_imports")
+    .select("status")
+    .eq("id", importId)
+    .maybeSingle();
+
+  const status = data?.status as string | undefined;
+  if (status === "error" || status === "partial" || status === "completed") return;
+
+  await service.from("media_imports").update({
+    status: "error",
+    error_message: message,
+    completed_at: new Date().toISOString(),
+  }).eq("id", importId);
 }

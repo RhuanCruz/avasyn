@@ -3,6 +3,7 @@ import { toast } from "sonner";
 
 import { StatusPill, formatDate } from "@/components/operator-ui";
 import { StorageVideoPreview } from "@/components/VideoPreview";
+import { formatMediaImportError } from "@/lib/media-errors";
 import { supabase } from "@/lib/supabase";
 import type { ReelJob } from "@/lib/types";
 
@@ -92,7 +93,7 @@ function GeneratedJobCard({
           <div className="truncate text-sm">{job.clip_url}</div>
           {job.error_message ? (
             <div className="text-sm" style={{ color: "var(--err)" }}>
-              {job.error_message}
+              {formatMediaImportError(job.error_message)}
             </div>
           ) : null}
         </div>

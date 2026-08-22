@@ -13,6 +13,8 @@ import { createClient } from "@supabase/supabase-js";
 
 import { createFfmpegArgs } from "./ffmpeg-options.mjs";
 import { getClipSource, getSourceVideoIdFromClipUrl } from "./job-media.mjs";
+import { describeYtDlpFailure } from "./ytdlp-errors.mjs";
+import { parseImpersonateTargets, summarizeYoutubeCookies } from "./health-report.mjs";
 import {
   buildTikTokSearchInput,
   buildTikTokDownloadInput,
@@ -133,12 +135,7 @@ function drainQueue() {
 createServer(async (request, response) => {
   try {
     if (request.method === "GET" && request.url === "/health") {
-      return sendJson(response, 200, {
-        ok: true,
-        revision: workerRevision,
-        active: activeJobs,
-        queued: jobQueue.length,
-      });
+      return sendJson(response, 200, await buildHealthPayload());
     }
 
     if (request.method === "POST" && request.url === "/search-tiktok") {
@@ -360,25 +357,12 @@ async function processJob(jobId) {
   const outputPath = join(workdir, "output.mp4");
 
   try {
-    const cookiesPath = await writeYoutubeCookiesFile(workdir);
     const clipSource = getClipSource(job);
 
     if (clipSource.type === "storage") {
       await downloadStorageFile("source-videos", clipSource.path, clipPath);
-    } else if (detectPlatform(clipSource.url) === "youtube") {
-      await downloadYouTubeWithPreferredFallback({
-        clipPath,
-        clipUrl: clipSource.url,
-        cookiesPath,
-      });
     } else {
-      await runCommand("yt-dlp", createYtDlpArgs({
-        clipPath,
-        clipUrl: clipSource.url,
-        cookiesPath,
-        nodePath: ytdlpNodePath,
-        proxyUrl: ytdlpProxy,
-      }));
+      await downloadClipUrl(clipSource.url, clipPath, workdir);
     }
 
     const reactionPositionX = job.reaction_videos.position_x ?? 0;
@@ -463,11 +447,11 @@ async function searchTikTok(query, limit) {
   const workdir = await mkdtemp(join(tmpdir(), "avasyn-search-"));
 
   try {
-    const cookiesPath = await writeYoutubeCookiesFile(workdir);
+    // No cookies here on purpose: the only jar we hold is a YouTube session and
+    // yt-dlp would send it to TikTok, leaking it for nothing in return.
     const output = await runCommand("yt-dlp", createTikTokSearchArgs({
       query,
       limit,
-      cookiesPath,
       nodePath: ytdlpNodePath,
       proxyUrl: ytdlpProxy,
     }), { captureStdout: true });
@@ -540,33 +524,79 @@ async function findMediaImport(importId) {
   throw new Error(`Media import ${importId} not found: ${details}`);
 }
 
+// Downloads a clip URL for a render job. Kept in sync with downloadImportUrl so
+// a link behaves the same whether it comes from the library import or a job.
+async function downloadClipUrl(clipUrl, clipPath, workdir) {
+  const platform = detectPlatform(clipUrl);
+
+  if (platform === "youtube") {
+    const cookiesPath = await writeYoutubeCookiesFile(workdir);
+    await downloadYouTubeWithPreferredFallback({ clipPath, clipUrl, cookiesPath });
+    return;
+  }
+
+  if (platform === "tiktok" && apifyToken) {
+    // Apify first: yt-dlp's TikTok extractor breaks often and needs browser
+    // impersonation (curl_cffi) that older worker images do not ship.
+    try {
+      await downloadTikTokImportUrl(clipUrl, clipPath);
+      return;
+    } catch (error) {
+      console.warn(
+        `Apify TikTok download failed, falling back to yt-dlp: ${formatErrorMessage(error)}`,
+      );
+    }
+  }
+
+  const cookiesPath = await writeCookiesForPlatform(platform, workdir);
+  try {
+    await runCommand("yt-dlp", createYtDlpArgs({
+      clipPath,
+      clipUrl,
+      cookiesPath,
+      nodePath: ytdlpNodePath,
+      proxyUrl: ytdlpProxy,
+    }));
+  } catch (error) {
+    throw new Error(describeYtDlpFailure(platform, formatErrorMessage(error)));
+  }
+}
+
 async function downloadImportUrl(url, workdir) {
   const videoPath = join(workdir, "import.mp4");
   const infoPath = join(workdir, "import.info.json");
   const platform = detectPlatform(url);
   if (platform === "tiktok" && apifyToken) {
-    return downloadTikTokImportUrl(url, videoPath);
+    try {
+      return await downloadTikTokImportUrl(url, videoPath);
+    } catch (error) {
+      console.warn(
+        `Apify TikTok import failed, falling back to yt-dlp: ${formatErrorMessage(error)}`,
+      );
+    }
   }
   if (platform === "youtube") {
     const cookiesPath = await writeYoutubeCookiesFile(workdir);
     return downloadYouTubeImportUrl(url, videoPath, infoPath, cookiesPath);
   }
 
-  const cookiesPath = platform === "instagram"
-    ? await writeInstagramCookiesFile(workdir)
-    : await writeYoutubeCookiesFile(workdir);
-  await runCommand("yt-dlp", [
-    "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
-    "--merge-output-format", "mp4",
-    "--max-filesize", "300M",
-    "--js-runtimes", `node:${ytdlpNodePath}`,
-    "--no-playlist",
-    "--write-info-json",
-    ...(cookiesPath ? ["--cookies", cookiesPath] : []),
-    ...(ytdlpProxy ? ["--proxy", ytdlpProxy] : []),
-    "-o", videoPath,
-    url,
-  ]);
+  const cookiesPath = await writeCookiesForPlatform(platform, workdir);
+  try {
+    await runCommand("yt-dlp", [
+      "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
+      "--merge-output-format", "mp4",
+      "--max-filesize", "300M",
+      "--js-runtimes", `node:${ytdlpNodePath}`,
+      "--no-playlist",
+      "--write-info-json",
+      ...(cookiesPath ? ["--cookies", cookiesPath] : []),
+      ...(ytdlpProxy ? ["--proxy", ytdlpProxy] : []),
+      "-o", videoPath,
+      url,
+    ]);
+  } catch (error) {
+    throw new Error(describeYtDlpFailure(platform, formatErrorMessage(error)));
+  }
 
   const metadata = await readJsonFile(infoPath);
   return {
@@ -579,10 +609,27 @@ async function downloadImportUrl(url, workdir) {
 }
 
 async function downloadYouTubeImportUrl(url, videoPath, infoPath, cookiesPath) {
-  if (huntApiKey) {
+  const failures = [];
+
+  // Same provider order as downloadYouTubeWithPreferredFallback. Each failure is
+  // recorded so the final message says which providers were tried and why they
+  // failed, instead of surfacing only the last (yt-dlp) stderr.
+  const providers = [
+    { name: "HuntAPI", enabled: Boolean(huntApiKey), run: downloadYouTubeWithHuntApi, normalize: normalizeHuntApiYouTubeCandidate },
+    { name: "WebAPI", enabled: Boolean(webApiYouTubeApiKey), run: downloadYouTubeWithWebApi, normalize: normalizeWebApiYouTubeCandidate },
+    { name: "SaveNow", enabled: Boolean(saveNowApiKey), run: downloadYouTubeWithSaveNow, normalize: normalizeSaveNowYouTubeCandidate },
+    { name: "Apify", enabled: Boolean(apifyToken), run: downloadYouTubeWithApify, normalize: normalizeApifyYouTubeCandidate },
+  ];
+
+  for (const provider of providers) {
+    if (!provider.enabled) {
+      failures.push(`${provider.name}: not configured`);
+      continue;
+    }
+
     try {
-      const item = await downloadYouTubeWithHuntApi(url, videoPath);
-      const candidate = normalizeHuntApiYouTubeCandidate(item, url);
+      const item = await provider.run(url, videoPath);
+      const candidate = provider.normalize(item, url);
       return {
         videoPath,
         metadata: candidate.metadata,
@@ -591,70 +638,29 @@ async function downloadYouTubeImportUrl(url, videoPath, infoPath, cookiesPath) {
         sourceUrl: candidate.sourceUrl,
       };
     } catch (error) {
-      console.warn(`HuntAPI YouTube import failed, falling back: ${formatErrorMessage(error)}`);
+      const message = formatErrorMessage(error);
+      failures.push(`${provider.name}: ${message}`);
+      console.warn(`${provider.name} YouTube import failed, falling back: ${message}`);
     }
   }
 
-  if (webApiYouTubeApiKey) {
-    try {
-      const item = await downloadYouTubeWithWebApi(url, videoPath);
-      const candidate = normalizeWebApiYouTubeCandidate(item, url);
-      return {
-        videoPath,
-        metadata: candidate.metadata,
-        externalId: sanitizeExternalId(candidate.externalId ?? url),
-        platform: candidate.platform,
-        sourceUrl: candidate.sourceUrl,
-      };
-    } catch (error) {
-      console.warn(`WebAPI YouTube import failed, falling back: ${formatErrorMessage(error)}`);
-    }
+  try {
+    await runCommand("yt-dlp", [
+      "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
+      "--merge-output-format", "mp4",
+      "--max-filesize", "300M",
+      "--js-runtimes", `node:${ytdlpNodePath}`,
+      "--no-playlist",
+      "--write-info-json",
+      ...(cookiesPath ? ["--cookies", cookiesPath] : []),
+      ...(ytdlpProxy ? ["--proxy", ytdlpProxy] : []),
+      "-o", videoPath,
+      url,
+    ]);
+  } catch (error) {
+    failures.push(describeYtDlpFailure("youtube", formatErrorMessage(error)));
+    throw new Error(`All YouTube download providers failed. ${failures.join(" | ")}`);
   }
-
-  if (saveNowApiKey) {
-    try {
-      const item = await downloadYouTubeWithSaveNow(url, videoPath);
-      const candidate = normalizeSaveNowYouTubeCandidate(item, url);
-      return {
-        videoPath,
-        metadata: candidate.metadata,
-        externalId: sanitizeExternalId(candidate.externalId ?? url),
-        platform: candidate.platform,
-        sourceUrl: candidate.sourceUrl,
-      };
-    } catch (error) {
-      console.warn(`SaveNow YouTube import failed, falling back: ${formatErrorMessage(error)}`);
-    }
-  }
-
-  if (apifyToken) {
-    try {
-      const item = await downloadYouTubeWithApify(url, videoPath);
-      const candidate = normalizeApifyYouTubeCandidate(item, url);
-      return {
-        videoPath,
-        metadata: candidate.metadata,
-        externalId: sanitizeExternalId(candidate.externalId ?? url),
-        platform: candidate.platform,
-        sourceUrl: candidate.sourceUrl,
-      };
-    } catch (error) {
-      console.warn(`Apify YouTube import failed, falling back to yt-dlp: ${formatErrorMessage(error)}`);
-    }
-  }
-
-  await runCommand("yt-dlp", [
-    "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
-    "--merge-output-format", "mp4",
-    "--max-filesize", "300M",
-    "--js-runtimes", `node:${ytdlpNodePath}`,
-    "--no-playlist",
-    "--write-info-json",
-    ...(cookiesPath ? ["--cookies", cookiesPath] : []),
-    ...(ytdlpProxy ? ["--proxy", ytdlpProxy] : []),
-    "-o", videoPath,
-    url,
-  ]);
 
   const metadata = await readJsonFile(infoPath);
   return {
@@ -710,49 +716,29 @@ async function downloadYouTubeWithPreferredFallback({
   cookiesPath,
 }) {
   const failures = [];
+  const providers = [
+    { name: "HuntAPI", enabled: Boolean(huntApiKey), run: downloadYouTubeWithHuntApi },
+    { name: "WebAPI", enabled: Boolean(webApiYouTubeApiKey), run: downloadYouTubeWithWebApi },
+    { name: "SaveNow", enabled: Boolean(saveNowApiKey), run: downloadYouTubeWithSaveNow },
+    { name: "Apify", enabled: Boolean(apifyToken), run: downloadYouTubeWithApify },
+  ];
 
-  if (huntApiKey) {
+  for (const provider of providers) {
+    if (!provider.enabled) {
+      // Recorded, not skipped silently: "not configured" is the most common
+      // reason the flow ends up on the cookie-dependent yt-dlp fallback.
+      failures.push(`${provider.name}: not configured`);
+      continue;
+    }
+
     try {
-      await downloadYouTubeWithHuntApi(clipUrl, clipPath);
+      await provider.run(clipUrl, clipPath);
       return;
     } catch (error) {
       const message = formatErrorMessage(error);
-      failures.push(`HuntAPI: ${message}`);
-      console.warn(`HuntAPI YouTube download failed, falling back: ${message}`);
+      failures.push(`${provider.name}: ${message}`);
+      console.warn(`${provider.name} YouTube download failed, falling back: ${message}`);
     }
-  }
-
-  if (webApiYouTubeApiKey) {
-    try {
-      await downloadYouTubeWithWebApi(clipUrl, clipPath);
-      return;
-    } catch (error) {
-      const message = formatErrorMessage(error);
-      failures.push(`WebAPI: ${message}`);
-      console.warn(`WebAPI YouTube download failed, falling back: ${message}`);
-    }
-  }
-
-  if (saveNowApiKey) {
-    try {
-      await downloadYouTubeWithSaveNow(clipUrl, clipPath);
-      return;
-    } catch (error) {
-      const message = formatErrorMessage(error);
-      failures.push(`SaveNow: ${message}`);
-      console.warn(`SaveNow YouTube download failed, falling back: ${message}`);
-    }
-  }
-
-  try {
-    if (apifyToken) {
-      await downloadYouTubeWithApify(clipUrl, clipPath);
-      return;
-    }
-  } catch (error) {
-    const message = formatErrorMessage(error);
-    failures.push(`Apify: ${message}`);
-    console.warn(`Apify YouTube download failed, falling back to yt-dlp: ${message}`);
   }
 
   try {
@@ -764,12 +750,8 @@ async function downloadYouTubeWithPreferredFallback({
       proxyUrl: ytdlpProxy,
     }));
   } catch (error) {
-    failures.push(`yt-dlp: ${formatErrorMessage(error)}`);
-    throw new Error(
-      "All YouTube download providers failed. "
-      + "HuntAPI/WebAPI/SaveNow/Apify did not provide a usable MP4 before yt-dlp fallback was blocked. "
-      + failures.join(" | "),
-    );
+    failures.push(describeYtDlpFailure("youtube", formatErrorMessage(error)));
+    throw new Error(`All YouTube download providers failed. ${failures.join(" | ")}`);
   }
 }
 
@@ -1124,10 +1106,16 @@ function sendJson(response, status, body) {
   response.end(JSON.stringify(body));
 }
 
+// yt-dlp hands the whole cookie jar to whatever host it contacts, so a jar is
+// only ever written for the platform it belongs to.
+async function writeCookiesForPlatform(platform, workdir) {
+  if (platform === "youtube") return writeYoutubeCookiesFile(workdir);
+  if (platform === "instagram") return writeInstagramCookiesFile(workdir);
+  return undefined;
+}
+
 async function writeYoutubeCookiesFile(workdir) {
-  const cookieContent = youtubeCookiesBase64
-    ? Buffer.from(normalizeBase64Env(youtubeCookiesBase64), "base64").toString("utf8")
-    : youtubeCookies;
+  const cookieContent = readYoutubeCookieContent();
 
   if (!cookieContent) {
     return undefined;
@@ -1136,6 +1124,71 @@ async function writeYoutubeCookiesFile(workdir) {
   const cookiesPath = join(workdir, "youtube-cookies.txt");
   await writeFile(cookiesPath, cookieContent.trimEnd() + "\n", { mode: 0o600 });
   return cookiesPath;
+}
+
+// Answers "is this deploy actually able to download?" in one request: which
+// providers are wired up, whether the YouTube session is still alive, and
+// whether yt-dlp can impersonate a browser (required by TikTok). Booleans and
+// cookie names only — never a secret or a cookie value.
+async function buildHealthPayload() {
+  const ytdlp = await inspectYtDlp();
+  const cookieContent = readYoutubeCookieContent();
+
+  return {
+    ok: true,
+    revision: workerRevision,
+    storageBackend: storageBackend || "supabase",
+    // Queue depth stays here: it is what tells you the worker is alive but
+    // saturated (the 503 "Worker busy" path) rather than broken.
+    active: activeJobs,
+    queued: jobQueue.length,
+    ytdlp,
+    providers: {
+      huntapi: Boolean(huntApiKey),
+      webapi: Boolean(webApiYouTubeApiKey),
+      savenow: Boolean(saveNowApiKey),
+      apify: Boolean(apifyToken),
+      proxy: Boolean(ytdlpProxy),
+    },
+    cookies: {
+      youtube: summarizeYoutubeCookies(cookieContent, Date.now()),
+      instagram: { present: Boolean(instagramCookiesBase64) },
+    },
+  };
+}
+
+// Cached for the process lifetime: neither the binary nor its build can change
+// without a redeploy, and /health may be polled by an uptime check.
+let ytdlpInspection;
+
+async function inspectYtDlp() {
+  if (ytdlpInspection) return ytdlpInspection;
+
+  const [version, impersonation] = await Promise.all([
+    runCommand("yt-dlp", ["--version"], { captureStdout: true })
+      .then((out) => out.trim())
+      .catch((error) => `unavailable: ${formatErrorMessage(error)}`),
+    runCommand("yt-dlp", ["--list-impersonate-targets"], { captureStdout: true })
+      .then((out) => {
+        const targets = parseImpersonateTargets(out);
+        return { available: targets.length > 0, targetCount: targets.length, sample: targets.slice(0, 3) };
+      })
+      .catch((error) => ({ available: false, targetCount: 0, error: formatErrorMessage(error) })),
+  ]);
+
+  ytdlpInspection = { version, impersonation };
+  return ytdlpInspection;
+}
+
+function readYoutubeCookieContent() {
+  if (youtubeCookiesBase64) {
+    try {
+      return Buffer.from(normalizeBase64Env(youtubeCookiesBase64), "base64").toString("utf8");
+    } catch {
+      return undefined;
+    }
+  }
+  return youtubeCookies;
 }
 
 function normalizeBase64Env(value) {
