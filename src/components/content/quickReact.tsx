@@ -648,7 +648,13 @@ async function waitForImportCompletion(importId: string) {
     if (error) throw error;
     const mediaImport = data as MediaImport;
     if (mediaImport.status === "completed" || mediaImport.status === "partial") return;
-    if (mediaImport.status === "error") throw new Error(formatMediaImportError(mediaImport.error_message));
+    // Lança o erro CRU: quem exibe é que formata. Formatar aqui fazia a mensagem passar
+    // duas vezes pelo formatador, e a saída da primeira passada voltava a casar com uma
+    // regra mais genérica -- a cascata ("HuntAPI: 502 | WebAPI: ...") desabava no texto
+    // de cookie, escondendo justamente o provider que falhou.
+    if (mediaImport.status === "error") {
+      throw new Error(mediaImport.error_message ?? "Falha ao importar mídia");
+    }
     await sleep(2000);
   }
   toast.info("Importação ainda em andamento. A biblioteca será atualizada quando terminar.");

@@ -8,6 +8,7 @@
 // mesmo que a tela de status mostra.
 
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
+import { describeError, isMissingTableError } from "../_shared/errors.ts";
 import {
   decodeCookieInput,
   summarizeYoutubeCookies,
@@ -63,13 +64,25 @@ Deno.serve(async (request) => {
         { onConflict: "key" },
       );
 
+    // A causa mais provável de falhar aqui é a edge function ter sido publicada sem a
+    // migration ter rodado. O erro cru do Postgres não diz o que fazer a respeito.
+    if (isMissingTableError(error)) {
+      return jsonResponse(
+        {
+          error:
+            "A tabela worker_credentials não existe no banco. Rode `supabase db push` "
+            + "para aplicar a migration e tente salvar de novo.",
+        },
+        { status: 400 },
+      );
+    }
+
     if (error) throw error;
 
     return jsonResponse({ ok: true, metadata, updatedAt });
   } catch (error) {
-    return jsonResponse(
-      { error: error instanceof Error ? error.message : "Unknown error" },
-      { status: 400 },
-    );
+    // describeError e não `instanceof Error`: o supabase-js lança PostgrestError, um objeto
+    // simples, e o teste de instância transformava toda falha de banco em "Unknown error".
+    return jsonResponse({ error: describeError(error) }, { status: 400 });
   }
 });

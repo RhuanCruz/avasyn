@@ -8,8 +8,35 @@
 
 const YOUTUBE_PROVIDERS = ["HuntAPI", "WebAPI", "SaveNow", "Apify"];
 
+// Início de cada mensagem que esta função produz. Serve para torná-la idempotente.
+//
+// Sem isso, formatar duas vezes degrada o diagnóstico em vez de preservá-lo: a saída da
+// cascata contém "YOUTUBE_COOKIES_BASE64", que casa com a regra de bot-check numa segunda
+// passada, e a mensagem específica vira a genérica de cookie. Já aconteceu em produção.
+const FORMATTED_PREFIXES = [
+  "Falha ao importar mídia",
+  "O worker de vídeo não está configurado",
+  "O TikTok exige que o worker finja ser um navegador",
+  "Só o yt-dlp está disponível para baixar do YouTube",
+  "Os provedores de download do YouTube falharam",
+  "Nenhum provedor conseguiu baixar este vídeo do YouTube",
+  "O YouTube bloqueou o download",
+  "Este vídeo está privado ou foi removido",
+  "A plataforma está limitando os downloads",
+  "Este vídeo passa do limite de 300MB",
+  "O yt-dlp não achou um MP4 para baixar",
+  "A Apify não retornou um MP4 baixável",
+  "A API SaveNow não retornou um vídeo baixável",
+  "Não foi possível baixar este link",
+];
+
 export function formatMediaImportError(message: string | null): string {
   if (!message) return "Falha ao importar mídia";
+
+  const trimmed = message.trim();
+  if (FORMATTED_PREFIXES.some((prefix) => trimmed.startsWith(prefix))) {
+    return message;
+  }
 
   if (isWorkerNotDeployed(message)) {
     return "O worker de vídeo não está configurado ou está desatualizado. Faça o deploy da versão mais recente e configure VIDEO_WORKER_URL.";
@@ -71,19 +98,28 @@ function isWorkerNotDeployed(message: string) {
  */
 function formatYouTubeCascadeError(message: string) {
   const details = message.split(/All YouTube download providers failed\.?\s*/i)[1]?.trim() ?? "";
-  const unconfigured = YOUTUBE_PROVIDERS.filter((provider) =>
-    new RegExp(`${provider}: not configured`, "i").test(details),
+  const configured = YOUTUBE_PROVIDERS.filter(
+    (provider) => !new RegExp(`${provider}: not configured`, "i").test(details),
   );
 
-  if (unconfigured.length === YOUTUBE_PROVIDERS.length) {
-    return "Nenhum provedor de download do YouTube está configurado no worker (HuntAPI, WebAPI, SaveNow ou Apify), então sobrou só o yt-dlp — e o YouTube bloqueou. Configure uma dessas chaves no worker.";
+  // Sem provider é uma configuração legítima (só yt-dlp), não um erro. Então a mensagem
+  // aponta as duas saídas que existem nesse modo, em vez de empurrar uma API paga.
+  if (configured.length === 0) {
+    return "Só o yt-dlp está disponível para baixar do YouTube, e o YouTube bloqueou. Atualize os cookies na tela Configurações, ou configure um proxy (YTDLP_PROXY) no worker.";
   }
 
-  if (/bot-checking the worker|not a bot|YOUTUBE_COOKIES_BASE64/i.test(details)) {
-    return "Os provedores de download falharam e o YouTube bot-checkou o yt-dlp. Atualize YOUTUBE_COOKIES_BASE64 no worker e rode novamente.";
-  }
+  // Quando um provider PAGO falha, ele é a causa acionável — o cookie é só o último
+  // recurso que sobrou depois. Dizer "atualize os cookies" aqui manda a pessoa mexer no
+  // lugar errado, que foi exatamente o que aconteceu na primeira vez que este erro apareceu.
+  const failures = configured.map((provider) => {
+    const match = details.match(new RegExp(`${provider}: ([^|]+)`, "i"));
+    return match ? `${provider}: ${match[1].trim()}` : provider;
+  });
 
-  return details
-    ? `Nenhum provedor conseguiu baixar este vídeo do YouTube. Detalhes do worker: ${details}`
-    : "Nenhum provedor conseguiu baixar este vídeo do YouTube.";
+  const botChecked = /bot-checking the worker|not a bot|YOUTUBE_COOKIES_BASE64/i.test(details);
+  const suffix = botChecked
+    ? " Sem eles sobrou o yt-dlp, que levou bot-check do YouTube — então nem o fallback por cookie passou."
+    : "";
+
+  return `Os provedores de download do YouTube falharam — ${failures.join(" · ")}.${suffix}`;
 }

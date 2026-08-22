@@ -4,6 +4,7 @@
 // worker -- em nenhum momento chega ao navegador.
 
 import { handleOptions, jsonResponse } from "../_shared/cors.ts";
+import { describeError, isMissingTableError } from "../_shared/errors.ts";
 import { summarizeYoutubeCookies } from "../_shared/netscape-cookies.ts";
 import { createServiceClient, getAuthenticatedUser } from "../_shared/supabase.ts";
 
@@ -23,6 +24,17 @@ Deno.serve(async (request) => {
       .eq("key", CREDENTIAL_KEY)
       .maybeSingle();
 
+    // Sem a migration aplicada a tela não deve quebrar: reporta "não configurado" e deixa
+    // o aviso explícito para quem for salvar.
+    if (isMissingTableError(error)) {
+      return jsonResponse({
+        configured: false,
+        migrationPending: true,
+        metadata: summarizeYoutubeCookies(null, Date.now()),
+        updatedAt: null,
+      });
+    }
+
     if (error) throw error;
 
     if (!data) {
@@ -41,9 +53,6 @@ Deno.serve(async (request) => {
       updatedAt: data.updated_at,
     });
   } catch (error) {
-    return jsonResponse(
-      { error: error instanceof Error ? error.message : "Unknown error" },
-      { status: 400 },
-    );
+    return jsonResponse({ error: describeError(error) }, { status: 400 });
   }
 });
