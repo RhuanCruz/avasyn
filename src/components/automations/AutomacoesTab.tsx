@@ -225,65 +225,68 @@ export function AutomacoesTab({ avatarId, initialTheme, onInitialThemeConsumed }
     setWizardOpen(true);
   }
 
-  if (loading) {
-    return (
-      <div className="mt-4 col" style={{ gap: 8 }}>
-        <Skeleton className="h-24 w-full rounded" />
-        <Skeleton className="h-24 w-full rounded" />
-      </div>
-    );
-  }
-
   const noReactions = data.reactions.length === 0;
 
+  // The skeleton replaces the list only, never the whole subtree: the wizard and
+  // modals below must stay mounted across refreshes or they lose their local
+  // state (the wizard would drop the draft and jump back to step 1).
   return (
     <div className="mt-4 col" style={{ gap: 14 }}>
-      <div className="flex items-center justify-between">
-        <p className="text-sm muted">Automações buscam vídeos por tema e geram reacts no automático.</p>
-        <Button disabled={noReactions} onClick={openNew} size="sm">
-          <Icon name="plus" size={14} style={{ marginRight: 4 }} />
-          Nova automação
-        </Button>
-      </div>
-
-      {noReactions && (
-        <div className="card card-pad" style={{ padding: 12 }}>
-          <p className="text-sm">
-            Adicione ao menos uma <strong>reaction</strong> a este avatar na Biblioteca antes de criar uma automação.
-          </p>
+      {loading ? (
+        <div className="col" style={{ gap: 8 }}>
+          <Skeleton className="h-24 w-full rounded" />
+          <Skeleton className="h-24 w-full rounded" />
         </div>
-      )}
-
-      {data.automations.length === 0 ? (
-        !noReactions && (
-          <div className="empty" style={{ padding: "32px 12px" }}>
-            <div>
-              <h3>Nenhuma automação</h3>
-              <p>Crie sua primeira automação para gerar reacts automaticamente.</p>
-              <Button onClick={openNew} style={{ marginTop: 12 }}>
-                Criar primeira automação
-              </Button>
-            </div>
-          </div>
-        )
       ) : (
-        <div className="col" style={{ gap: 10 }}>
-          {data.automations.map((automation) => (
-            <AutomationCard
-              accountLabel={accountLabel(automation.account_ids?.length ? automation.account_ids : automation.account_id ? [automation.account_id] : [])}
-              automation={automation}
-              key={automation.id}
-              onDetails={() => setDetail(automation)}
-              onEdit={() => openEdit(automation)}
-              onPosts={() => setPostsFor(automation)}
-              onRun={() => void handleRun(automation)}
-              onToggle={() => void handleToggle(automation)}
-              postsToday={postsTodayMap.get(automation.id) ?? 0}
-              running={runningId === automation.id}
-              toggling={busyId === automation.id}
-            />
-          ))}
-        </div>
+        <>
+          <div className="flex items-center justify-between">
+            <p className="text-sm muted">Automações buscam vídeos por tema e geram reacts no automático.</p>
+            <Button disabled={noReactions} onClick={openNew} size="sm">
+              <Icon name="plus" size={14} style={{ marginRight: 4 }} />
+              Nova automação
+            </Button>
+          </div>
+
+          {noReactions && (
+            <div className="card card-pad" style={{ padding: 12 }}>
+              <p className="text-sm">
+                Adicione ao menos uma <strong>reaction</strong> a este avatar na Biblioteca antes de criar uma automação.
+              </p>
+            </div>
+          )}
+
+          {data.automations.length === 0 ? (
+            !noReactions && (
+              <div className="empty" style={{ padding: "32px 12px" }}>
+                <div>
+                  <h3>Nenhuma automação</h3>
+                  <p>Crie sua primeira automação para gerar reacts automaticamente.</p>
+                  <Button onClick={openNew} style={{ marginTop: 12 }}>
+                    Criar primeira automação
+                  </Button>
+                </div>
+              </div>
+            )
+          ) : (
+            <div className="col" style={{ gap: 10 }}>
+              {data.automations.map((automation) => (
+                <AutomationCard
+                  accountLabel={accountLabel(automation.account_ids?.length ? automation.account_ids : automation.account_id ? [automation.account_id] : [])}
+                  automation={automation}
+                  key={automation.id}
+                  onDetails={() => setDetail(automation)}
+                  onEdit={() => openEdit(automation)}
+                  onPosts={() => setPostsFor(automation)}
+                  onRun={() => void handleRun(automation)}
+                  onToggle={() => void handleToggle(automation)}
+                  postsToday={postsTodayMap.get(automation.id) ?? 0}
+                  running={runningId === automation.id}
+                  toggling={busyId === automation.id}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {wizardOpen && (
