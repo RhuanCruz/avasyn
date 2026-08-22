@@ -8,6 +8,15 @@
 
 const YOUTUBE_PROVIDERS = ["HuntAPI", "WebAPI", "SaveNow", "Apify"];
 
+// Um proxy recusando autenticação parece "site bloqueou" para quem lê o erro de longe, mas
+// a correção é em outro lugar: credencial do proxy ou allowlist de IP no painel dele.
+const PROXY_FAILURE = /HTTP Error 407|Proxy Authentication Required|Unable to connect to proxy|CONNECT tunnel failed|ProxyError/i;
+
+const PROXY_FAILURE_MESSAGE =
+  "O proxy configurado em YTDLP_PROXY recusou a conexão (erro 407, autenticação). "
+  + "Confira usuário e senha; e se o painel do proxy estiver em modo \"IP Authorization\", "
+  + "libere o IP do servidor lá em vez de usar usuário/senha.";
+
 // Início de cada mensagem que esta função produz. Serve para torná-la idempotente.
 //
 // Sem isso, formatar duas vezes degrada o diagnóstico em vez de preservá-lo: a saída da
@@ -18,6 +27,7 @@ const FORMATTED_PREFIXES = [
   "O worker de vídeo não está configurado",
   "O TikTok exige que o worker finja ser um navegador",
   "Só o yt-dlp está disponível para baixar do YouTube",
+  "O proxy configurado em YTDLP_PROXY recusou a conexão",
   "Os provedores de download do YouTube falharam",
   "Nenhum provedor conseguiu baixar este vídeo do YouTube",
   "O YouTube bloqueou o download",
@@ -46,6 +56,12 @@ export function formatMediaImportError(message: string | null): string {
   // only works when the image ships the curl-cffi extra.
   if (/cannot impersonate a browser|impersonate target|curl[-_]cffi|attempting impersonation/i.test(message)) {
     return "O TikTok exige que o worker finja ser um navegador. Reconstrua a imagem do worker com yt-dlp[default,curl-cffi] e rode de novo.";
+  }
+
+  // Antes da cascata: um proxy recusando conexão é causa definitiva e acionável, e a
+  // mensagem agregada esconderia esse detalhe atrás de "o YouTube bloqueou".
+  if (PROXY_FAILURE.test(message)) {
+    return PROXY_FAILURE_MESSAGE;
   }
 
   if (/All YouTube download providers failed/i.test(message)) {
@@ -102,10 +118,16 @@ function formatYouTubeCascadeError(message: string) {
     (provider) => !new RegExp(`${provider}: not configured`, "i").test(details),
   );
 
-  // Sem provider é uma configuração legítima (só yt-dlp), não um erro. Então a mensagem
-  // aponta as duas saídas que existem nesse modo, em vez de empurrar uma API paga.
+  // Sem provider é uma configuração legítima (só yt-dlp), não um erro.
+  //
+  // O detalhe do yt-dlp vai junto: sem ele esta mensagem dizia "o YouTube bloqueou" para
+  // qualquer falha -- inclusive quando a causa era o proxy recusando autenticação -- e
+  // mandava conferir cookie, que não tinha nada a ver.
   if (configured.length === 0) {
-    return "Só o yt-dlp está disponível para baixar do YouTube, e o YouTube bloqueou. Atualize os cookies na tela Configurações, ou configure um proxy (YTDLP_PROXY) no worker.";
+    const ytdlpDetail = details.split("|").map((part) => part.trim()).filter(Boolean).pop();
+    const suffix = ytdlpDetail ? ` Detalhe do yt-dlp: ${ytdlpDetail}` : "";
+
+    return `Só o yt-dlp está disponível para baixar do YouTube, e ele não conseguiu.${suffix}`;
   }
 
   // Quando um provider PAGO falha, ele é a causa acionável — o cookie é só o último

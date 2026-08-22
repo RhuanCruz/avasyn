@@ -40,9 +40,8 @@ describe("formatMediaImportError", () => {
       const formatted = formatMediaImportError(message);
 
       expect(formatted).toContain("Só o yt-dlp está disponível");
-      // Não empurra API paga: rodar só com yt-dlp é uma escolha válida.
-      expect(formatted).toContain("cookies");
-      expect(formatted).toContain("YTDLP_PROXY");
+      // O detalhe do yt-dlp precisa sobreviver: era ele que dizia a causa real.
+      expect(formatted).toContain("bot-checking the worker");
     });
 
     // O provider pago que caiu é a causa acionável. Mandar atualizar cookie quando a
@@ -73,6 +72,33 @@ describe("formatMediaImportError", () => {
       // Os que nem estavam ligados não são ruído acionável.
       expect(formatted).not.toContain("SaveNow");
       expect(formatted).not.toContain("Apify");
+    });
+
+    // O proxy recusando autenticação parecia "o YouTube bloqueou", e a mensagem mandava
+    // conferir cookie -- que nao tinha nada a ver com a falha.
+    test("407 do proxy vira instrucao sobre o proxy, nao sobre cookie", () => {
+      const raw =
+        "All YouTube download providers failed. HuntAPI: not configured | WebAPI: not configured "
+        + "| SaveNow: not configured | Apify: not configured "
+        + "| yt-dlp: ERROR: Unable to download API page: ('Unable to connect to proxy', "
+        + "OSError('Tunnel connection failed: 407 Proxy Authentication Required'))";
+
+      const formatted = formatMediaImportError(raw);
+
+      expect(formatted).toContain("YTDLP_PROXY");
+      expect(formatted).toContain("IP Authorization");
+      expect(formatted).not.toContain("Atualize os cookies");
+      expect(formatMediaImportError(formatted)).toBe(formatted);
+    });
+
+    test("reconhece as varias formas do erro de proxy", () => {
+      for (const raw of [
+        "ERROR: HTTP Error 407: Proxy Authentication Required",
+        "curl: (56) CONNECT tunnel failed, response 407",
+        "ProxyError('Cannot connect to proxy')",
+      ]) {
+        expect(formatMediaImportError(raw)).toContain("YTDLP_PROXY");
+      }
     });
 
     test("maps a bare bot-check to the cookie fix", () => {
