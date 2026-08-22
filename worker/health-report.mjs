@@ -1,12 +1,15 @@
 // Cookies that actually carry a signed-in YouTube session. If any of these are
 // missing or expired, yt-dlp is effectively anonymous and gets bot-checked.
+//
+// LOGIN_INFO is deliberately NOT here. A jar exported without it was verified to
+// authenticate against youtube.com, so flagging it as missing painted a red
+// warning over a working setup — a false alarm is worse than no check at all.
 const YOUTUBE_AUTH_COOKIES = [
   "__Secure-1PSID",
   "__Secure-3PSID",
   "SID",
   "HSID",
   "SSID",
-  "LOGIN_INFO",
 ];
 
 // Netscape cookies.txt: domain \t includeSubdomains \t path \t secure \t expires \t name \t value

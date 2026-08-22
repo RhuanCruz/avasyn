@@ -6,13 +6,16 @@
 
 // Cookies que de fato carregam uma sessão logada do YouTube. Sem eles o yt-dlp navega como
 // anônimo e leva bot-check, mesmo com o arquivo presente.
+//
+// LOGIN_INFO está fora de propósito: um jar exportado sem ele foi verificado autenticando
+// normalmente no youtube.com, então acusá-lo como faltante pintava de vermelho um setup que
+// funciona — alarme falso é pior que checagem nenhuma.
 export const YOUTUBE_AUTH_COOKIES = [
   "__Secure-1PSID",
   "__Secure-3PSID",
   "SID",
   "HSID",
   "SSID",
-  "LOGIN_INFO",
 ] as const;
 
 export type NetscapeCookie = {

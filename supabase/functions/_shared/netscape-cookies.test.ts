@@ -74,7 +74,7 @@ describe("summarizeYoutubeCookies", () => {
   test("lista os cookies de sessão que faltam", () => {
     const summary = summarizeYoutubeCookies(line("SID", FUTURE), NOW);
 
-    expect(summary.missingAuthCookies).toContain("LOGIN_INFO");
+    expect(summary.missingAuthCookies).toContain("__Secure-1PSID");
     expect(summary.expired).toBe(false);
   });
 

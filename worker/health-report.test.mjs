@@ -78,7 +78,7 @@ describe("summarizeYoutubeCookies", () => {
     const partial = [cookieLine("SID", FUTURE), cookieLine("HSID", FUTURE)].join("\n");
     const summary = summarizeYoutubeCookies(partial, NOW);
 
-    expect(summary.missingAuthCookies).toContain("LOGIN_INFO");
+    expect(summary.missingAuthCookies).toContain("SSID");
     expect(summary.missingAuthCookies).toContain("__Secure-1PSID");
     expect(summary.expired).toBe(false);
   });
