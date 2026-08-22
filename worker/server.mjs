@@ -1115,7 +1115,7 @@ async function writeCookiesForPlatform(platform, workdir) {
 }
 
 async function writeYoutubeCookiesFile(workdir) {
-  const cookieContent = readYoutubeCookieContent();
+  const { content: cookieContent } = await readYoutubeCookieContent();
 
   if (!cookieContent) {
     return undefined;
@@ -1132,7 +1132,7 @@ async function writeYoutubeCookiesFile(workdir) {
 // cookie names only — never a secret or a cookie value.
 async function buildHealthPayload() {
   const ytdlp = await inspectYtDlp();
-  const cookieContent = readYoutubeCookieContent();
+  const { content: cookieContent, source: cookieSource } = await readYoutubeCookieContent();
 
   return {
     ok: true,
@@ -1151,7 +1151,9 @@ async function buildHealthPayload() {
       proxy: Boolean(ytdlpProxy),
     },
     cookies: {
-      youtube: summarizeYoutubeCookies(cookieContent, Date.now()),
+      // `source` responde "o worker está lendo o cookie que acabei de salvar, ou ainda o
+      // do env?" -- a primeira dúvida depois de migrar.
+      youtube: { source: cookieSource, ...summarizeYoutubeCookies(cookieContent, Date.now()) },
       instagram: { present: Boolean(instagramCookiesBase64) },
     },
   };
@@ -1180,15 +1182,52 @@ async function inspectYtDlp() {
   return ytdlpInspection;
 }
 
-function readYoutubeCookieContent() {
+const YOUTUBE_COOKIE_CREDENTIAL_KEY = "youtube_cookies";
+
+// O banco vem primeiro para que trocar um cookie vencido seja um paste na tela do Avasyn,
+// sem recriar o container. As variáveis de ambiente continuam valendo como fallback: a
+// migração não quebra um deploy que ainda só tem YOUTUBE_COOKIES_BASE64, e se o Supabase
+// estiver fora do ar o download não para por causa disso.
+//
+// Sem cache de propósito: é um lookup por chave primária, os jobs levam minutos, e cachear
+// significaria continuar usando o cookie velho depois de você ter colado o novo.
+async function readYoutubeCookieContent() {
+  const stored = await readStoredYoutubeCookies();
+  if (stored) return { content: stored, source: "database" };
+
   if (youtubeCookiesBase64) {
     try {
-      return Buffer.from(normalizeBase64Env(youtubeCookiesBase64), "base64").toString("utf8");
+      return {
+        content: Buffer.from(normalizeBase64Env(youtubeCookiesBase64), "base64").toString("utf8"),
+        source: "env:YOUTUBE_COOKIES_BASE64",
+      };
     } catch {
-      return undefined;
+      return { content: undefined, source: "env:invalid-base64" };
     }
   }
-  return youtubeCookies;
+
+  if (youtubeCookies) return { content: youtubeCookies, source: "env:YOUTUBE_COOKIES" };
+
+  return { content: undefined, source: "none" };
+}
+
+async function readStoredYoutubeCookies() {
+  try {
+    const { data, error } = await supabase
+      .from("worker_credentials")
+      .select("value")
+      .eq("key", YOUTUBE_COOKIE_CREDENTIAL_KEY)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data?.value ?? undefined;
+  } catch (error) {
+    // Nunca deixa a leitura derrubar o job: cair no env é melhor que falhar o download.
+    console.warn(
+      `Could not read stored YouTube cookies, falling back to env: ${formatErrorMessage(error)}`,
+    );
+    return undefined;
+  }
 }
 
 function normalizeBase64Env(value) {

@@ -72,6 +72,8 @@ MVP interno para gerar e postar Instagram Reels usando Supabase e Zernio.
    supabase functions deploy sync-presenter-video
    supabase functions deploy reel-processor
    supabase functions deploy search-tiktok
+   supabase functions deploy set-worker-cookies
+   supabase functions deploy get-worker-cookies-status
    supabase functions deploy post-to-zernio
    supabase functions deploy automation-scheduler
    supabase functions deploy zernio-webhook --no-verify-jwt
@@ -124,9 +126,16 @@ MVP interno para gerar e postar Instagram Reels usando Supabase e Zernio.
    `yt-dlp` deixa de ser alcançado no fluxo normal. Quando todos falham, o erro
    diz qual provider falhou e por quê (`HuntAPI: not configured | SaveNow: 502 | ...`).
 
-   Se cair no fallback e aparecer `Sign in to confirm you're not a bot`, exporte
-   cookies do YouTube no formato Netscape cookies.txt, gere base64 e salve em
-   `YOUTUBE_COOKIES_BASE64`:
+   **Onde ficam os cookies do YouTube.** O worker lê primeiro a tabela
+   `worker_credentials` (chave `youtube_cookies`) e só depois cai nas variáveis de
+   ambiente. Ou seja: para trocar um cookie vencido, use a tela **Configurações**
+   do próprio Avasyn — o valor passa a valer no próximo job, sem recriar o
+   container. O campo `cookies.youtube.source` do `/health` diz qual origem está
+   em uso (`database`, `env:YOUTUBE_COOKIES_BASE64` ou `none`).
+
+   O caminho por variável de ambiente continua funcionando como fallback. Se
+   preferir usá-lo, exporte os cookies no formato Netscape cookies.txt, gere
+   base64 e salve em `YOUTUBE_COOKIES_BASE64`:
 
    ```bash
    base64 -i youtube-cookies.txt | tr -d '\n'

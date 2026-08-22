@@ -460,6 +460,7 @@ export function AppSidebar({
     { href: "/avatars", label: "Avatares", icon: "users" },
     { href: "/library", label: "Biblioteca", icon: "library" },
     { href: "/bulk-editor", label: "Editor em massa", icon: "wand" },
+    { href: "/settings", label: "Configurações", icon: "settings" },
   ];
   const activeAvatars = avatars.filter((avatar) => avatar.status === "active").slice(0, 5);
 
