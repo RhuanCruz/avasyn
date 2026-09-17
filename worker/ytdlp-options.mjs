@@ -8,9 +8,17 @@
 // yt-dlp é a menor dimensão, então 1080 pega o 1080x1920 nativo dos Shorts.
 export const YTDLP_FORMAT_SORT = "res:1080,vcodec:h264";
 
-export function createYtDlpArgs({
-  clipPath,
-  clipUrl,
+/**
+ * Argumentos comuns a todo download. Existe centralizado porque as listas soltas
+ * divergiram duas vezes, e nas duas a falha foi silenciosa: o caminho de import passava
+ * `--js-runtimes` mas esquecia `--remote-components ejs:github`, entao o yt-dlp ficava sem
+ * como resolver o desafio de JavaScript do YouTube e a resposta virava bot-check. Quem
+ * precisar de uma flag a mais acrescenta depois; quem precisar mudar o basico mexe aqui.
+ *
+ * O `--js-runtimes`/`--remote-components` so resolve o desafio se a imagem tiver o pacote
+ * `yt-dlp-ejs` -- ver worker/Dockerfile.vercel.
+ */
+export function createYtDlpDownloadArgs({
   cookiesPath,
   formatSort = YTDLP_FORMAT_SORT,
   nodePath = "/usr/local/bin/node",
@@ -39,6 +47,19 @@ export function createYtDlpArgs({
   if (proxyUrl) {
     args.push("--proxy", proxyUrl);
   }
+
+  return args;
+}
+
+export function createYtDlpArgs({
+  clipPath,
+  clipUrl,
+  cookiesPath,
+  formatSort = YTDLP_FORMAT_SORT,
+  nodePath = "/usr/local/bin/node",
+  proxyUrl,
+}) {
+  const args = createYtDlpDownloadArgs({ cookiesPath, formatSort, nodePath, proxyUrl });
 
   args.push("-o", clipPath, clipUrl);
 

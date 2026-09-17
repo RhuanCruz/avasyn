@@ -48,7 +48,11 @@ import {
   sanitizeExternalId,
 } from "./media-import.mjs";
 import { parseTikTokSearchOutput } from "./tiktok-search.mjs";
-import { createTikTokSearchArgs, createYtDlpArgs, YTDLP_FORMAT_SORT } from "./ytdlp-options.mjs";
+import {
+  createTikTokSearchArgs,
+  createYtDlpArgs,
+  createYtDlpDownloadArgs,
+} from "./ytdlp-options.mjs";
 
 const port = Number(process.env.PORT ?? 8080);
 const storageBackend = process.env.STORAGE_BACKEND ?? "";
@@ -608,15 +612,12 @@ async function downloadImportUrl(url, workdir) {
   const cookiesPath = await writeCookiesForPlatform(platform, workdir);
   try {
     await runCommand("yt-dlp", [
-      "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
-      "-S", YTDLP_FORMAT_SORT,
-      "--merge-output-format", "mp4",
-      "--max-filesize", "300M",
-      "--js-runtimes", `node:${ytdlpNodePath}`,
-      "--no-playlist",
+      ...createYtDlpDownloadArgs({
+        cookiesPath,
+        nodePath: ytdlpNodePath,
+        proxyUrl: ytdlpProxy,
+      }),
       "--write-info-json",
-      ...(cookiesPath ? ["--cookies", cookiesPath] : []),
-      ...(ytdlpProxy ? ["--proxy", ytdlpProxy] : []),
       "-o", videoPath,
       url,
     ]);
@@ -672,15 +673,12 @@ async function downloadYouTubeImportUrl(url, videoPath, infoPath, cookiesPath) {
 
   try {
     await runCommand("yt-dlp", [
-      "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
-      "-S", YTDLP_FORMAT_SORT,
-      "--merge-output-format", "mp4",
-      "--max-filesize", "300M",
-      "--js-runtimes", `node:${ytdlpNodePath}`,
-      "--no-playlist",
+      ...createYtDlpDownloadArgs({
+        cookiesPath,
+        nodePath: ytdlpNodePath,
+        proxyUrl: ytdlpProxy,
+      }),
       "--write-info-json",
-      ...(cookiesPath ? ["--cookies", cookiesPath] : []),
-      ...(ytdlpProxy ? ["--proxy", ytdlpProxy] : []),
       "-o", videoPath,
       url,
     ]);
@@ -1200,7 +1198,7 @@ let ytdlpInspection;
 async function inspectYtDlp() {
   if (ytdlpInspection) return ytdlpInspection;
 
-  const [version, impersonation] = await Promise.all([
+  const [version, impersonation, jsChallenge] = await Promise.all([
     runCommand("yt-dlp", ["--version"], { captureStdout: true })
       .then((out) => out.trim())
       .catch((error) => `unavailable: ${formatErrorMessage(error)}`),
@@ -1210,9 +1208,14 @@ async function inspectYtDlp() {
         return { available: targets.length > 0, targetCount: targets.length, sample: targets.slice(0, 3) };
       })
       .catch((error) => ({ available: false, targetCount: 0, error: formatErrorMessage(error) })),
+    // O YouTube exige resolver um desafio de JavaScript. Sem o pacote yt-dlp-ejs na
+    // imagem, o yt-dlp nao tem o que executar e a resposta vira bot-check -- indistinguivel
+    // de cookie vencido para quem le o erro. Foi assim que o YouTube quebrou na migracao
+    // para a Vercel, e este campo existe para que a proxima vez seja obvia.
+    inspectJsChallengeSupport(),
   ]);
 
-  ytdlpInspection = { version, impersonation };
+  ytdlpInspection = { version, impersonation, jsChallenge };
   return ytdlpInspection;
 }
 
@@ -1225,6 +1228,23 @@ const YOUTUBE_COOKIE_CREDENTIAL_KEY = "youtube_cookies";
 //
 // Sem cache de propósito: é um lookup por chave primária, os jobs levam minutos, e cachear
 // significaria continuar usando o cookie velho depois de você ter colado o novo.
+async function inspectJsChallengeSupport() {
+  const nodeAvailable = await runCommand(ytdlpNodePath, ["--version"], { captureStdout: true })
+    .then((out) => out.trim())
+    .catch(() => null);
+
+  const ejs = await runCommand("python3", ["-c", "import yt_dlp_ejs; print('ok')"], { captureStdout: true })
+    .then(() => true)
+    .catch(() => false);
+
+  return {
+    // Os dois precisam existir: o pacote fornece o codigo, o runtime executa.
+    ready: ejs && Boolean(nodeAvailable),
+    ejsPackage: ejs,
+    jsRuntime: nodeAvailable ? `node ${nodeAvailable}` : `nao encontrado em ${ytdlpNodePath}`,
+  };
+}
+
 async function readYoutubeCookieContent() {
   const stored = await readStoredYoutubeCookies();
   if (stored) return { content: stored, source: "database" };

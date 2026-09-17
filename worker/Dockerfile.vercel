@@ -20,14 +20,24 @@ RUN apt-get update \
 # extractors do TikTok e do YouTube quebram com o tempo.
 ARG YTDLP_CACHEBUST=2026-09-17
 
-# `curl-cffi` e obrigatorio: o extractor do TikTok exige impersonacao de navegador e sem
-# ele todo download falha com "no impersonate target is available". A verificacao abaixo
-# derruba o build de proposito -- e melhor descobrir aqui do que em producao.
+# Tres pacotes, e os tres sao obrigatorios:
+#
+# `curl-cffi`  -- o extractor do TikTok exige impersonacao de navegador; sem ele todo
+#                 download falha com "no impersonate target is available".
+# `yt-dlp-ejs` -- o YouTube exige resolver um desafio de JavaScript. Sem este pacote o
+#                 yt-dlp nao tem o que executar e a resposta vira bot-check, que e
+#                 indistinguivel de cookie vencido para quem le o erro. O stack antigo da
+#                 VPS instalava este pacote no compose e o Dockerfile nao -- foi essa
+#                 divergencia que quebrou o YouTube na migracao.
+#
+# As verificacoes abaixo derrubam o build de proposito: e melhor descobrir aqui do que em
+# producao, horas depois, com um erro que aponta para o lugar errado.
 RUN echo "ytdlp-cachebust=${YTDLP_CACHEBUST}" \
   && python3 -m venv /opt/venv \
-  && /opt/venv/bin/pip install --no-cache-dir --upgrade "yt-dlp[default,curl-cffi]" gallery-dl \
+  && /opt/venv/bin/pip install --no-cache-dir --upgrade "yt-dlp[default,curl-cffi]" gallery-dl yt-dlp-ejs \
   && /opt/venv/bin/yt-dlp --version \
-  && /opt/venv/bin/python -c "import curl_cffi.requests; print('curl_cffi ok')"
+  && /opt/venv/bin/python -c "import curl_cffi.requests; print('curl_cffi ok')" \
+  && /opt/venv/bin/python -c "import yt_dlp_ejs; print('yt-dlp-ejs ok')"
 
 ENV PATH="/opt/venv/bin:${PATH}"
 

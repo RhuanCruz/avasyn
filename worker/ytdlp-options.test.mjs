@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { createTikTokSearchArgs, createYtDlpArgs, YTDLP_FORMAT_SORT } from "./ytdlp-options.mjs";
+import {
+  createTikTokSearchArgs,
+  createYtDlpArgs,
+  createYtDlpDownloadArgs,
+  YTDLP_FORMAT_SORT,
+} from "./ytdlp-options.mjs";
 
 describe("createYtDlpArgs", () => {
   test("enables Node as the yt-dlp JavaScript runtime", () => {
@@ -96,5 +101,40 @@ describe("teto de resolucao", () => {
     const args = createYtDlpArgs({ clipPath: "/tmp/c.mp4", clipUrl: "https://x", formatSort: "res:480" });
 
     expect(args[args.indexOf("-S") + 1]).toBe("res:480");
+  });
+});
+
+// O caminho de import passava --js-runtimes sem --remote-components, entao o yt-dlp ficava
+// sem como resolver o desafio de JavaScript do YouTube e a resposta virava bot-check --
+// que na tela parece cookie vencido. Centralizar os argumentos foi a correcao; estes
+// testes existem para que as receitas nao voltem a divergir.
+describe("argumentos compartilhados de download", () => {
+  const base = createYtDlpDownloadArgs({});
+
+  test("sempre leva runtime JS e a fonte do EJS juntos", () => {
+    expect(base).toContain("--js-runtimes");
+    expect(base).toContain("--remote-components");
+    expect(base[base.indexOf("--remote-components") + 1]).toBe("ejs:github");
+  });
+
+  test("createYtDlpArgs e construido sobre a mesma base", () => {
+    const full = createYtDlpArgs({ clipPath: "/tmp/c.mp4", clipUrl: "https://x" });
+
+    for (const flag of base) expect(full).toContain(flag);
+    expect(full.slice(-2)).toEqual(["/tmp/c.mp4", "https://x"]);
+  });
+
+  test("mantem o teto de resolucao e o limite de tamanho", () => {
+    expect(base[base.indexOf("-S") + 1]).toBe(YTDLP_FORMAT_SORT);
+    expect(base[base.indexOf("--max-filesize") + 1]).toBe("300M");
+  });
+
+  test("cookies e proxy entram so quando informados", () => {
+    expect(base).not.toContain("--cookies");
+    expect(base).not.toContain("--proxy");
+
+    const comTudo = createYtDlpDownloadArgs({ cookiesPath: "/tmp/ck.txt", proxyUrl: "http://p:1" });
+    expect(comTudo[comTudo.indexOf("--cookies") + 1]).toBe("/tmp/ck.txt");
+    expect(comTudo[comTudo.indexOf("--proxy") + 1]).toBe("http://p:1");
   });
 });

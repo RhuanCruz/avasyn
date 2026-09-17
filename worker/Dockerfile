@@ -14,9 +14,10 @@ ARG YTDLP_CACHEBUST=2026-08-21
 # `default` brings the local EJS support some YouTube videos need.
 RUN echo "ytdlp-cachebust=${YTDLP_CACHEBUST}" \
   && python3 -m venv /opt/venv \
-  && /opt/venv/bin/pip install --no-cache-dir --upgrade "yt-dlp[default,curl-cffi]" gallery-dl \
+  && /opt/venv/bin/pip install --no-cache-dir --upgrade "yt-dlp[default,curl-cffi]" gallery-dl yt-dlp-ejs \
   && /opt/venv/bin/yt-dlp --version \
-  && /opt/venv/bin/python -c "import curl_cffi.requests; print('curl_cffi ok')"
+  && /opt/venv/bin/python -c "import curl_cffi.requests; print('curl_cffi ok')" \
+  && /opt/venv/bin/python -c "import yt_dlp_ejs; print('yt-dlp-ejs ok')"
 
 ENV PATH="/opt/venv/bin:${PATH}"
 
