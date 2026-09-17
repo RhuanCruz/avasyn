@@ -105,10 +105,15 @@ export function useQuickReact(avatarId: string | null) {
       limit: 1,
     });
     toast.info("Baixando vídeo para a biblioteca...");
-    await waitForImportCompletion(response.importId);
+    const createdIds = await waitForImportCompletion(response.importId);
 
-    let imported: SourceVideo | null = null;
-    for (let attempt = 0; attempt < 5; attempt += 1) {
+    // O worker registra o que criou em media_imports.source_video_ids. Ler esse id é
+    // exato; procurar por external_id ou por URL era palpite, e quando errava a tela
+    // dizia que o vídeo não apareceu na biblioteca -- com o vídeo já lá.
+    let imported = createdIds.length > 0 ? await findSourceVideoById(createdIds[0]) : null;
+
+    // Fallback para importações criadas antes desta coluna existir.
+    for (let attempt = 0; attempt < 5 && !imported; attempt += 1) {
       imported = await findSourceVideoForSource(avatarId, source);
       if (imported) break;
       await sleep(1000);
@@ -642,12 +647,25 @@ async function findSourceVideoForSource(avatarId: string, source: QuickReactSour
   return data ? (data as SourceVideo) : null;
 }
 
-async function waitForImportCompletion(importId: string) {
+async function findSourceVideoById(id: string) {
+  const { data, error } = await supabase
+    .from("source_videos")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? (data as SourceVideo) : null;
+}
+
+/** Devolve os ids de source_videos que a importação criou (vazio em imports antigos). */
+async function waitForImportCompletion(importId: string): Promise<string[]> {
   for (let attempt = 0; attempt < 45; attempt += 1) {
     const { data, error } = await supabase.from("media_imports").select("*").eq("id", importId).single();
     if (error) throw error;
-    const mediaImport = data as MediaImport;
-    if (mediaImport.status === "completed" || mediaImport.status === "partial") return;
+    const mediaImport = data as MediaImport & { source_video_ids?: string[] | null };
+    if (mediaImport.status === "completed" || mediaImport.status === "partial") {
+      return mediaImport.source_video_ids ?? [];
+    }
     // Lança o erro CRU: quem exibe é que formata. Formatar aqui fazia a mensagem passar
     // duas vezes pelo formatador, e a saída da primeira passada voltava a casar com uma
     // regra mais genérica -- a cascata ("HuntAPI: 502 | WebAPI: ...") desabava no texto
@@ -658,6 +676,7 @@ async function waitForImportCompletion(importId: string) {
     await sleep(2000);
   }
   toast.info("Importação ainda em andamento. A biblioteca será atualizada quando terminar.");
+  return [];
 }
 
 function mergeSourceVideos(current: SourceVideo[], next: SourceVideo[]) {

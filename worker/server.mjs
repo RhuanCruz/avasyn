@@ -499,10 +499,16 @@ async function processMediaImport(importId) {
 
     await updateMediaImport(importId, { total_items: candidates.length });
 
+    // Grava a cada item, e não só no fim: uma importação que falha no meio ("partial")
+    // ainda deixa registrado o que já entrou, e o frontend consegue usar.
+    const sourceVideoIds = [];
     for (const candidate of candidates) {
-      await storeImportedVideo(mediaImport, candidate, workdir);
+      sourceVideoIds.push(await storeImportedVideo(mediaImport, candidate, workdir));
       processed += 1;
-      await updateMediaImport(importId, { processed_items: processed });
+      await updateMediaImport(importId, {
+        processed_items: processed,
+        source_video_ids: sourceVideoIds,
+      });
     }
 
     await updateMediaImport(importId, {
@@ -933,11 +939,15 @@ async function storeImportedVideo(mediaImport, candidate, workdir) {
     .eq("source_platform", candidate.platform)
     .eq("source_external_id", storageId)
     .maybeSingle();
+  // `select("id").single()` nos dois caminhos: o id volta para processMediaImport gravar
+  // em media_imports.source_video_ids, e é isso que faz o frontend parar de adivinhar
+  // qual vídeo foi criado.
   const query = existing
-    ? supabase.from("source_videos").update(row).eq("id", existing.id)
-    : supabase.from("source_videos").insert(row);
-  const { error } = await query;
+    ? supabase.from("source_videos").update(row).eq("id", existing.id).select("id").single()
+    : supabase.from("source_videos").insert(row).select("id").single();
+  const { data, error } = await query;
   if (error) throw error;
+  return data.id;
 }
 
 async function uploadStorageFile(bucket, storagePath, localPath, contentType) {
