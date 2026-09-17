@@ -48,7 +48,7 @@ import {
   sanitizeExternalId,
 } from "./media-import.mjs";
 import { parseTikTokSearchOutput } from "./tiktok-search.mjs";
-import { createTikTokSearchArgs, createYtDlpArgs } from "./ytdlp-options.mjs";
+import { createTikTokSearchArgs, createYtDlpArgs, YTDLP_FORMAT_SORT } from "./ytdlp-options.mjs";
 
 const port = Number(process.env.PORT ?? 8080);
 const storageBackend = process.env.STORAGE_BACKEND ?? "";
@@ -584,6 +584,7 @@ async function downloadImportUrl(url, workdir) {
   try {
     await runCommand("yt-dlp", [
       "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
+      "-S", YTDLP_FORMAT_SORT,
       "--merge-output-format", "mp4",
       "--max-filesize", "300M",
       "--js-runtimes", `node:${ytdlpNodePath}`,
@@ -647,6 +648,7 @@ async function downloadYouTubeImportUrl(url, videoPath, infoPath, cookiesPath) {
   try {
     await runCommand("yt-dlp", [
       "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
+      "-S", YTDLP_FORMAT_SORT,
       "--merge-output-format", "mp4",
       "--max-filesize", "300M",
       "--js-runtimes", `node:${ytdlpNodePath}`,
