@@ -101,6 +101,28 @@ async function claimJob(service: ServiceClient, jobId: string) {
   return (data?.length ?? 0) > 0;
 }
 
+// Quanto esperamos para saber que o worker ACEITOU o job -- nao para ele terminar.
+// No deploy em VPS a resposta vem em 202 quase imediata; no container da Vercel o render
+// acontece dentro da requisicao e nada volta por minutos. Ver o tratamento do timeout em
+// dispatchToWorker.
+// Tira a mensagem da pgmq depois que o worker assumiu o job. Se ela ficar, uma leitura
+// futura reprocessa e republica conteudo ja publicado. No caminho direto nao temos o
+// msg_id, entao limpamos por job_id.
+async function dropQueueMessage(service: ServiceClient, jobId: string, msgId: number | null) {
+  if (msgId !== null) {
+    await service.rpc("delete_reel_job_message", { msg_id: msgId });
+  } else {
+    await service.rpc("delete_reel_job_messages_for_job", { job_id: jobId });
+  }
+}
+
+const ACCEPT_WINDOW_MS = 10_000;
+
+function isAcceptWindowTimeout(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return error.name === "TimeoutError" || error.name === "AbortError";
+}
+
 async function dispatchToWorker(jobId: string, msgId: number | null) {
   const service = createServiceClient();
   const workerUrl = Deno.env.get("VIDEO_WORKER_URL");
@@ -125,8 +147,21 @@ async function dispatchToWorker(jobId: string, msgId: number | null) {
           ...(workerSecret ? { Authorization: `Bearer ${workerSecret}` } : {}),
         },
         body: JSON.stringify({ jobId }),
+        signal: AbortSignal.timeout(ACCEPT_WINDOW_MS),
       });
     } catch (error) {
+      // Silêncio dentro da janela significa que o worker pegou o trabalho e está
+      // renderizando -- o container na Vercel processa dentro da requisição e só
+      // responde no fim, o que leva minutos. Esta edge function não vive tanto, então
+      // soltamos a conexão aqui. Isso é seguro porque o cancelamento de request na
+      // Vercel é opt-in e vem desligado: desconectar não interrompe o render. Quem grava
+      // o resultado é processJob, no banco, e job travado é coberto pelo reaper do
+      // retry-failed-jobs.
+      if (isAcceptWindowTimeout(error)) {
+        await dropQueueMessage(service, jobId, msgId);
+        return;
+      }
+
       // Falha de rede (worker fora do ar ou reiniciando) é infra, não job ruim. O fetch
       // do Deno lança TypeError com a mensagem crua do cliente Rust ("tcp connect error:
       // Connection refused"), que nenhum padrão do retry-failed-jobs reconhecia. O
@@ -155,11 +190,7 @@ async function dispatchToWorker(jobId: string, msgId: number | null) {
     // se ficar na fila, uma leitura futura reprocessa e republica um job já publicado.
     // No caminho direto não temos o msg_id, então limpamos por job_id — era exatamente
     // esse vazamento que enchia a fila com uma mensagem órfã por job criado.
-    if (msgId !== null) {
-      await service.rpc("delete_reel_job_message", { msg_id: msgId });
-    } else {
-      await service.rpc("delete_reel_job_messages_for_job", { job_id: jobId });
-    }
+    await dropQueueMessage(service, jobId, msgId);
   } catch (error) {
     await markJobError(
       jobId,

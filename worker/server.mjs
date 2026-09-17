@@ -107,6 +107,16 @@ const supabase = createClient(supabaseUrl, serviceRoleKey, {
 const jobQueue = [];
 let activeJobs = 0;
 
+// Como container na Vercel, nada disso vale: cada requisicao pode cair numa instancia
+// diferente, a instancia some depois de responder, e trabalho iniciado fora da requisicao
+// e perdido. La o job roda DENTRO da requisicao. Isso so e viavel porque o cancelamento de
+// request na Vercel e opt-in e vem desligado -- o chamador desconectar (o reel-processor
+// dispara e nao espera) nao mata o render em andamento.
+//
+// A fila continua existindo para o deploy em VPS, onde ela protege um host de 2 vCPU de
+// rodar varios ffmpeg ao mesmo tempo e levar OOM.
+const statelessRuntime = Boolean(process.env.VERCEL);
+
 function queueDepth() {
   return activeJobs + jobQueue.length;
 }
@@ -202,6 +212,16 @@ createServer(async (request, response) => {
       return sendJson(response, 400, { error: "jobId is required" });
     }
 
+    const jobId = String(body.jobId);
+
+    // Em runtime stateless (container na Vercel) o trabalho tem que acontecer dentro da
+    // requisicao -- ver o comentario em statelessRuntime. Sem fila: quem limita a
+    // concorrencia ali e o autoscaling, uma instancia por render.
+    if (statelessRuntime) {
+      await processJob(jobId);
+      return sendJson(response, 200, { ok: true, jobId });
+    }
+
     if (queueDepth() >= maxQueuedJobs) {
       return sendJson(response, 503, {
         error: "Worker busy",
@@ -213,7 +233,6 @@ createServer(async (request, response) => {
     // function que despacha não sobrevive tanto tempo. Segurar a conexão fazia o
     // reel-processor marcar error por timeout enquanto o worker ainda estava
     // renderizando o mesmo job. Quem grava o resultado é processJob, no banco.
-    const jobId = String(body.jobId);
     enqueueTask(`job ${jobId}`, () => processJob(jobId));
     return sendJson(response, 202, { accepted: true, jobId, queued: queueDepth() });
   } catch (error) {
@@ -1139,6 +1158,9 @@ async function buildHealthPayload() {
   return {
     ok: true,
     revision: workerRevision,
+    // Responde "este deploy processa dentro da requisicao ou em fila?" -- a primeira
+    // duvida ao verificar se a migracao para a Vercel pegou.
+    runtime: statelessRuntime ? "vercel-container" : "vps-queue",
     storageBackend: storageBackend || "supabase",
     // Queue depth stays here: it is what tells you the worker is alive but
     // saturated (the 503 "Worker busy" path) rather than broken.

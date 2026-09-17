@@ -1,0 +1,13 @@
+{
+  "name": "avasyn-worker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Worker de video (yt-dlp + ffmpeg). Manifesto proprio para que a imagem nao carregue as dependencias do frontend e para que a Vercel possa usar worker/ como Root Directory.",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.107.0"
+  }
+}

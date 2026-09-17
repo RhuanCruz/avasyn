@@ -70,6 +70,9 @@ function normalizeLimit(value: unknown) {
   return Math.max(1, Math.min(50, Math.trunc(parsed)));
 }
 
+// Quanto esperamos para saber que o worker ACEITOU a importacao -- nao para ela terminar.
+const ACCEPT_WINDOW_MS = 10_000;
+
 async function dispatchImport(importId: string) {
   const service = createServiceClient();
   const workerUrl = Deno.env.get("VIDEO_WORKER_URL");
@@ -94,11 +97,20 @@ async function dispatchImport(importId: string) {
           ...(workerSecret ? { Authorization: `Bearer ${workerSecret}` } : {}),
         },
         body: JSON.stringify({ importId }),
+        // Mesma razao do reel-processor: o worker em container processa dentro da
+        // requisicao, entao esperar a resposta inteira mataria esta funcao antes. Silencio
+        // dentro da janela = o worker assumiu. Quem grava o resultado e processMediaImport.
+        signal: AbortSignal.timeout(ACCEPT_WINDOW_MS),
       },
     );
 
     if (!response.ok) throw new Error(await readWorkerError(response));
   } catch (error) {
+    // Timeout da janela significa que o worker esta baixando, nao que falhou.
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      return;
+    }
+
     await markImportFailed(
       service,
       importId,

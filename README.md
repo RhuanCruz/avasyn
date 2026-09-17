@@ -203,6 +203,50 @@ MVP interno para gerar e postar Instagram Reels usando Supabase e Zernio.
    exportado de uma sessão Instagram autorizada. Após alterar o worker,
    reconstrua o stack para instalar também o `gallery-dl`.
 
+5b. Worker na Vercel (container image):
+
+   O worker também roda como Vercel Function a partir de `worker/Dockerfile.vercel`.
+   Crie um **projeto separado** do `avasyn` (que serve o site) com
+   **Root Directory = `worker/`**. Duas razões: a Vercel detecta
+   `Dockerfile.vercel` na raiz do projeto — se ele estivesse na raiz do
+   repositório, o frontend passaria a buildar como container — e assim um
+   restart do worker não redeploya o site.
+
+   ```bash
+   vercel link --project avasyn-worker    # Root Directory: worker/
+   vercel env add SUPABASE_URL production
+   vercel env add SUPABASE_SERVICE_ROLE_KEY production
+   vercel env add VIDEO_WORKER_SECRET production
+   vercel env add YTDLP_PROXY production   # obrigatório: IP da Vercel é datacenter
+   vercel env add STORAGE_BACKEND production
+   vercel env add R2_ACCOUNT_ID production
+   vercel env add R2_ACCESS_KEY_ID production
+   vercel env add R2_SECRET_ACCESS_KEY production
+   vercel env add R2_BUCKET production
+   vercel deploy --prod
+   ```
+
+   Depois aponte o Supabase para ele:
+
+   ```bash
+   supabase secrets set VIDEO_WORKER_URL=https://avasyn-worker.vercel.app
+   ```
+
+   **Ajustes no painel** (Settings → Functions): *Function Max Duration* para
+   **800s** e *Function CPU* para **Performance** (2 vCPU). O render é limitado
+   a 90s de saída por `-t 90`, mas roda em 1 vCPU no tamanho padrão.
+
+   Confira com `GET /health`: o campo `runtime` deve dizer
+   `vercel-container` (em VPS diz `vps-queue`) e `providers.proxy` deve ser `true`.
+
+   Diferenças de comportamento nesse modo, ambas exigidas pelo contrato de
+   container: o job roda **dentro da requisição** (containers são stateless e não
+   sobrevivem a trabalho em background) e não há fila interna — quem limita
+   concorrência é o autoscaling. Quem despacha (`reel-processor`,
+   `create-media-import`) espera só 10s para saber que o worker assumiu e então
+   solta a conexão; isso é seguro porque cancelamento de request na Vercel é
+   opt-in e vem desligado.
+
 6. Rode local:
 
    ```bash

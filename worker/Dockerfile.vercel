@@ -1,0 +1,45 @@
+# Imagem do worker para rodar como Vercel Function (container image).
+#
+# Este arquivo fica em worker/ e NAO na raiz do repositorio de proposito. A Vercel detecta
+# `Dockerfile.vercel` na raiz do PROJETO e passa a rotear todo o trafego para a imagem --
+# e o projeto `avasyn`, que serve o site em producao, tem a raiz do repositorio como root.
+# Um Dockerfile.vercel la faria o frontend passar a buildar como container.
+#
+# O projeto do worker usa **Root Directory = worker/**, entao esta pasta e a raiz dele e o
+# contexto de build e worker/. E por isso que existe um worker/package.json separado: o da
+# raiz arrasta React, Tailwind e o resto do frontend para dentro da imagem sem necessidade.
+
+FROM node:24-bookworm-slim
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates ffmpeg python3 python3-venv \
+  && rm -rf /var/lib/apt/lists/*
+
+# Mude o valor para forcar uma instalacao nova do yt-dlp quando so ele envelheceu; sem
+# isso o Docker reaproveita a camada e continua servindo a versao antiga, que e como os
+# extractors do TikTok e do YouTube quebram com o tempo.
+ARG YTDLP_CACHEBUST=2026-09-17
+
+# `curl-cffi` e obrigatorio: o extractor do TikTok exige impersonacao de navegador e sem
+# ele todo download falha com "no impersonate target is available". A verificacao abaixo
+# derruba o build de proposito -- e melhor descobrir aqui do que em producao.
+RUN echo "ytdlp-cachebust=${YTDLP_CACHEBUST}" \
+  && python3 -m venv /opt/venv \
+  && /opt/venv/bin/pip install --no-cache-dir --upgrade "yt-dlp[default,curl-cffi]" gallery-dl \
+  && /opt/venv/bin/yt-dlp --version \
+  && /opt/venv/bin/python -c "import curl_cffi.requests; print('curl_cffi ok')"
+
+ENV PATH="/opt/venv/bin:${PATH}"
+
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN npm install --omit=dev
+
+COPY . .
+
+# Containers na Vercel recebem trafego na porta 80. server.mjs le process.env.PORT.
+ENV PORT=80
+EXPOSE 80
+
+CMD ["node", "server.mjs"]
