@@ -218,6 +218,12 @@ MVP interno para gerar e postar Instagram Reels usando Supabase e Zernio.
    vercel env add SUPABASE_SERVICE_ROLE_KEY production
    vercel env add VIDEO_WORKER_SECRET production
    vercel env add YTDLP_PROXY production   # obrigatório: IP da Vercel é datacenter
+
+   `YTDLP_PROXY` aceita **vários proxies separados por vírgula**. O bloqueio do
+   YouTube depende da combinação IP + vídeo, não de um ou de outro: medido com
+   cinco proxies e dois vídeos, todos baixaram o primeiro e só um passou no
+   segundo. Com lista, um bloqueio vira "tenta o próximo" em vez de derrubar o
+   job; erro que não é bloqueio (vídeo privado, URL não suportada) sobe na hora.
    vercel env add STORAGE_BACKEND production
    vercel env add R2_ACCOUNT_ID production
    vercel env add R2_ACCESS_KEY_ID production

@@ -15,6 +15,7 @@ import { createFfmpegArgs } from "./ffmpeg-options.mjs";
 import { getClipSource, getSourceVideoIdFromClipUrl } from "./job-media.mjs";
 import { describeYtDlpFailure } from "./ytdlp-errors.mjs";
 import { parseImpersonateTargets, summarizeYoutubeCookies } from "./health-report.mjs";
+import { describeProxy, isRetriableProxyFailure, parseProxyList } from "./proxy-pool.mjs";
 import {
   buildTikTokSearchInput,
   buildTikTokDownloadInput,
@@ -60,7 +61,10 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const workerSecret = process.env.VIDEO_WORKER_SECRET;
 const ytdlpNodePath = process.env.YTDLP_NODE_PATH ?? "/usr/local/bin/node";
-const ytdlpProxy = process.env.YTDLP_PROXY;
+// Aceita varios proxies separados por virgula. Ver worker/proxy-pool.mjs: o bloqueio do
+// YouTube depende da combinacao IP + video, entao um proxy fixo falha de forma
+// aparentemente aleatoria.
+const ytdlpProxies = parseProxyList(process.env.YTDLP_PROXY);
 const youtubeCookiesBase64 = process.env.YOUTUBE_COOKIES_BASE64;
 const youtubeCookies = process.env.YOUTUBE_COOKIES;
 const instagramCookiesBase64 = process.env.INSTAGRAM_COOKIES_BASE64;
@@ -472,11 +476,11 @@ async function searchTikTok(query, limit) {
   try {
     // No cookies here on purpose: the only jar we hold is a YouTube session and
     // yt-dlp would send it to TikTok, leaking it for nothing in return.
-    const output = await runCommand("yt-dlp", createTikTokSearchArgs({
+    const output = await runYtDlpRotating((proxyUrl) => createTikTokSearchArgs({
       query,
       limit,
       nodePath: ytdlpNodePath,
-      proxyUrl: ytdlpProxy,
+      proxyUrl,
     }), { captureStdout: true });
 
     return parseTikTokSearchOutput(output);
@@ -579,12 +583,12 @@ async function downloadClipUrl(clipUrl, clipPath, workdir) {
 
   const cookiesPath = await writeCookiesForPlatform(platform, workdir);
   try {
-    await runCommand("yt-dlp", createYtDlpArgs({
+    await runYtDlpRotating((proxyUrl) => createYtDlpArgs({
       clipPath,
       clipUrl,
       cookiesPath,
       nodePath: ytdlpNodePath,
-      proxyUrl: ytdlpProxy,
+      proxyUrl,
     }));
   } catch (error) {
     throw new Error(describeYtDlpFailure(platform, formatErrorMessage(error)));
@@ -611,11 +615,11 @@ async function downloadImportUrl(url, workdir) {
 
   const cookiesPath = await writeCookiesForPlatform(platform, workdir);
   try {
-    await runCommand("yt-dlp", [
+    await runYtDlpRotating((proxyUrl) => [
       ...createYtDlpDownloadArgs({
         cookiesPath,
         nodePath: ytdlpNodePath,
-        proxyUrl: ytdlpProxy,
+        proxyUrl,
       }),
       "--write-info-json",
       "-o", videoPath,
@@ -672,11 +676,11 @@ async function downloadYouTubeImportUrl(url, videoPath, infoPath, cookiesPath) {
   }
 
   try {
-    await runCommand("yt-dlp", [
+    await runYtDlpRotating((proxyUrl) => [
       ...createYtDlpDownloadArgs({
         cookiesPath,
         nodePath: ytdlpNodePath,
-        proxyUrl: ytdlpProxy,
+        proxyUrl,
       }),
       "--write-info-json",
       "-o", videoPath,
@@ -767,12 +771,12 @@ async function downloadYouTubeWithPreferredFallback({
   }
 
   try {
-    await runCommand("yt-dlp", createYtDlpArgs({
+    await runYtDlpRotating((proxyUrl) => createYtDlpArgs({
       clipPath,
       clipUrl,
       cookiesPath,
       nodePath: ytdlpNodePath,
-      proxyUrl: ytdlpProxy,
+      proxyUrl,
     }));
   } catch (error) {
     failures.push(describeYtDlpFailure("youtube", formatErrorMessage(error)));
@@ -1049,6 +1053,36 @@ async function downloadStorageFile(bucket, storagePath, outputPath) {
   await pipeline(Readable.fromWeb(data.stream()), createWriteStream(outputPath));
 }
 
+/**
+ * Roda o yt-dlp trocando de proxy enquanto a falha for de bloqueio.
+ *
+ * Medido com cinco proxies e dois videos: os cinco baixaram o video facil, e no outro
+ * quatro levaram bot-check e um passou. Com um proxy fixo isso aparece como falha
+ * aleatoria; aqui vira "tenta o proximo". Erro que nao e bloqueio (video privado, URL nao
+ * suportada) sobe na hora -- gastar nove proxies num video inexistente so atrasa o job.
+ */
+async function runYtDlpRotating(makeArgs, options = {}) {
+  const candidates = ytdlpProxies.length > 0 ? ytdlpProxies : [undefined];
+  let lastError;
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    const proxyUrl = candidates[index];
+    try {
+      return await runCommand("yt-dlp", makeArgs(proxyUrl), options);
+    } catch (error) {
+      lastError = error;
+      const isLast = index === candidates.length - 1;
+      if (isLast || !isRetriableProxyFailure(formatErrorMessage(error))) throw error;
+      console.warn(
+        `yt-dlp bloqueado via ${describeProxy(proxyUrl)} `
+        + `(${index + 1}/${candidates.length}); tentando o proximo`,
+      );
+    }
+  }
+
+  throw lastError;
+}
+
 function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -1180,7 +1214,8 @@ async function buildHealthPayload() {
       webapi: Boolean(webApiYouTubeApiKey),
       savenow: Boolean(saveNowApiKey),
       apify: Boolean(apifyToken),
-      proxy: Boolean(ytdlpProxy),
+      proxy: ytdlpProxies.length > 0,
+      proxyCount: ytdlpProxies.length,
     },
     cookies: {
       // `source` responde "o worker está lendo o cookie que acabei de salvar, ou ainda o
