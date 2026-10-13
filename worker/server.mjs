@@ -50,6 +50,11 @@ import {
 } from "./media-import.mjs";
 import { parseTikTokSearchOutput } from "./tiktok-search.mjs";
 import {
+  fetchScrapeCreatorsTikTok,
+  findScrapeCreatorsVideoUrl,
+  normalizeScrapeCreatorsTikTokCandidate,
+} from "./scrapecreators-tiktok.mjs";
+import {
   createTikTokSearchArgs,
   createYtDlpArgs,
   createYtDlpDownloadArgs,
@@ -69,6 +74,7 @@ const youtubeCookiesBase64 = process.env.YOUTUBE_COOKIES_BASE64;
 const youtubeCookies = process.env.YOUTUBE_COOKIES;
 const instagramCookiesBase64 = process.env.INSTAGRAM_COOKIES_BASE64;
 const apifyToken = process.env.APIFY_TOKEN;
+const scrapeCreatorsKey = process.env.SCRAPECREATORS_API_KEY;
 const apifyTikTokActorId = process.env.APIFY_TIKTOK_ACTOR_ID ?? "clockworks/tiktok-scraper";
 const apifyYouTubeDownloaderActorId = process.env.APIFY_YOUTUBE_DOWNLOADER_ACTOR_ID
   ?? "epctex/youtube-video-downloader";
@@ -568,6 +574,15 @@ async function downloadClipUrl(clipUrl, clipPath, workdir) {
     return;
   }
 
+  if (platform === "tiktok" && scrapeCreatorsKey) {
+    try {
+      await downloadTikTokWithScrapeCreators(clipUrl, clipPath);
+      return;
+    } catch (error) {
+      console.warn(`ScrapeCreators TikTok download failed, falling back: ${formatErrorMessage(error)}`);
+    }
+  }
+
   if (platform === "tiktok" && apifyToken) {
     // Apify first: yt-dlp's TikTok extractor breaks often and needs browser
     // impersonation (curl_cffi) that older worker images do not ship.
@@ -599,6 +614,13 @@ async function downloadImportUrl(url, workdir) {
   const videoPath = join(workdir, "import.mp4");
   const infoPath = join(workdir, "import.info.json");
   const platform = detectPlatform(url);
+  if (platform === "tiktok" && scrapeCreatorsKey) {
+    try {
+      return await downloadTikTokWithScrapeCreators(url, videoPath);
+    } catch (error) {
+      console.warn(`ScrapeCreators TikTok import failed, falling back: ${formatErrorMessage(error)}`);
+    }
+  }
   if (platform === "tiktok" && apifyToken) {
     try {
       return await downloadTikTokImportUrl(url, videoPath);
@@ -827,6 +849,27 @@ function isApifyApiUrl(value) {
 
 function formatErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+// Primeiro caminho do TikTok: a ScrapeCreators devolve a URL direta do MP4 no CDN, que baixa
+// sem proxy e sem cookie. O yt-dlp contra o TikTok depende de proxy residencial; quando os
+// proxies morrem, todo download falha com timeout.
+async function downloadTikTokWithScrapeCreators(url, videoPath) {
+  const detail = await fetchScrapeCreatorsTikTok({ apiKey: scrapeCreatorsKey, sourceUrl: url });
+  if (!detail) throw new Error("ScrapeCreators did not return the TikTok video");
+
+  const videoUrl = findScrapeCreatorsVideoUrl(detail);
+  if (!videoUrl) throw new Error("ScrapeCreators returned no downloadable TikTok URL");
+
+  await downloadHttpFile(videoUrl, videoPath);
+  const candidate = normalizeScrapeCreatorsTikTokCandidate(detail, url);
+  return {
+    videoPath,
+    metadata: candidate.metadata,
+    externalId: sanitizeExternalId(candidate.externalId ?? url),
+    platform: candidate.platform,
+    sourceUrl: candidate.sourceUrl,
+  };
 }
 
 async function downloadTikTokImportUrl(url, videoPath) {
@@ -1062,7 +1105,9 @@ async function downloadStorageFile(bucket, storagePath, outputPath) {
  * suportada) sobe na hora -- gastar nove proxies num video inexistente so atrasa o job.
  */
 async function runYtDlpRotating(makeArgs, options = {}) {
-  const candidates = ytdlpProxies.length > 0 ? ytdlpProxies : [undefined];
+  // Sem proxy por ultimo: com todos mortos (cota esgotada), uma tentativa direta ainda pode
+  // passar em videos que nao exigem confianca, e custa so uma requisicao.
+  const candidates = ytdlpProxies.length > 0 ? [...ytdlpProxies, undefined] : [undefined];
   let lastError;
 
   for (let index = 0; index < candidates.length; index += 1) {
@@ -1214,6 +1259,7 @@ async function buildHealthPayload() {
       webapi: Boolean(webApiYouTubeApiKey),
       savenow: Boolean(saveNowApiKey),
       apify: Boolean(apifyToken),
+      scrapecreators: Boolean(scrapeCreatorsKey),
       proxy: ytdlpProxies.length > 0,
       proxyCount: ytdlpProxies.length,
     },

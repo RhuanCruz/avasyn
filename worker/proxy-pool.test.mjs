@@ -44,6 +44,15 @@ describe("isRetriableProxyFailure", () => {
     expect(isRetriableProxyFailure("Unable to connect to proxy")).toBe(true);
   });
 
+  // Incidente real: proxy 1 deu timeout, a rotacao nao tentou os outros oito.
+  test("proxy morto ou sem cota justifica o proximo", () => {
+    expect(isRetriableProxyFailure(
+      "Unable to download webpage: Failed to perform, curl: (28) Connection timed out after 20001 milliseconds.",
+    )).toBe(true);
+    expect(isRetriableProxyFailure("Bandwidth limit reached. Please upgrade to continue using the proxy.")).toBe(true);
+    expect(isRetriableProxyFailure("TransportError('Failed to perform')")).toBe(true);
+  });
+
   // Gastar nove proxies num video que nao existe so atrasa o job para terminar igual.
   test("problema do video nao justifica", () => {
     expect(isRetriableProxyFailure("ERROR: Video unavailable")).toBe(false);

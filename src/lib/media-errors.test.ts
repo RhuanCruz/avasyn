@@ -101,6 +101,19 @@ describe("formatMediaImportError", () => {
       }
     });
 
+    test("proxy sem cota ou timeout aponta para renovar o proxy, nao para cookie", () => {
+      for (const raw of [
+        "yt-dlp: ERROR: [TikTok] 769: Unable to download webpage: Failed to perform, curl: (28) Connection timed out after 20001 milliseconds.",
+        "Bandwidth limit reached. Please upgrade to continue using the proxy.",
+      ]) {
+        const formatted = formatMediaImportError(raw);
+
+        expect(formatted).toContain("YTDLP_PROXY");
+        expect(formatted).toContain("ScrapeCreators");
+        expect(formatMediaImportError(formatted)).toBe(formatted);
+      }
+    });
+
     test("maps a bare bot-check to the cookie fix", () => {
       expect(formatMediaImportError("ERROR: Sign in to confirm you're not a bot"))
         .toContain("YOUTUBE_COOKIES_BASE64");

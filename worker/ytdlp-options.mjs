@@ -46,6 +46,8 @@ export function createYtDlpDownloadArgs({
 
   if (proxyUrl) {
     args.push("--proxy", proxyUrl);
+    // Sem isso um proxy morto prende o job por 20s+ antes de a rotacao tentar o proximo.
+    args.push("--socket-timeout", "12");
   }
 
   return args;

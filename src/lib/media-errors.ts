@@ -17,6 +17,13 @@ const PROXY_FAILURE_MESSAGE =
   + "Confira usuário e senha; e se o painel do proxy estiver em modo \"IP Authorization\", "
   + "libere o IP do servidor lá em vez de usar usuário/senha.";
 
+// Proxy sem cota ou fora do ar: parece "o site bloqueou" mas a correção é renovar o proxy.
+const PROXY_EXHAUSTED = /Bandwidth limit reached|curl: \(28\)|Connection timed out after \d+ milliseconds/i;
+
+const PROXY_EXHAUSTED_MESSAGE =
+  "Os proxies do worker estão sem resposta ou sem cota (o plano gratuito da Webshare dá 1 GB/mês). "
+  + "Renove a lista em YTDLP_PROXY. TikTok continua funcionando pela ScrapeCreators; YouTube depende do proxy.";
+
 // Início de cada mensagem que esta função produz. Serve para torná-la idempotente.
 //
 // Sem isso, formatar duas vezes degrada o diagnóstico em vez de preservá-lo: a saída da
@@ -28,6 +35,7 @@ const FORMATTED_PREFIXES = [
   "O TikTok exige que o worker finja ser um navegador",
   "Só o yt-dlp está disponível para baixar do YouTube",
   "O proxy configurado em YTDLP_PROXY recusou a conexão",
+  "Os proxies do worker estão sem resposta ou sem cota",
   "Os provedores de download do YouTube falharam",
   "Nenhum provedor conseguiu baixar este vídeo do YouTube",
   "O YouTube bloqueou o download",
@@ -62,6 +70,10 @@ export function formatMediaImportError(message: string | null): string {
   // mensagem agregada esconderia esse detalhe atrás de "o YouTube bloqueou".
   if (PROXY_FAILURE.test(message)) {
     return PROXY_FAILURE_MESSAGE;
+  }
+
+  if (PROXY_EXHAUSTED.test(message)) {
+    return PROXY_EXHAUSTED_MESSAGE;
   }
 
   if (/All YouTube download providers failed/i.test(message)) {

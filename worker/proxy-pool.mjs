@@ -35,6 +35,13 @@ export function isRetriableProxyFailure(message) {
     return true;
   }
 
+  // Proxy morto ou sem cota. Estes dois ficaram de fora e custaram um incidente: com a cota
+  // da Webshare esgotada, o primeiro proxy da lista dava timeout (curl 28), a rotacao nao
+  // reconhecia isso como falha de proxy e desistia sem tentar os outros oito.
+  if (/Connection timed out|curl: \(28\)|curl: \(7\)|curl: \(56\)|Bandwidth limit reached|TransportError|timed out/i.test(text)) {
+    return true;
+  }
+
   return false;
 }
 
