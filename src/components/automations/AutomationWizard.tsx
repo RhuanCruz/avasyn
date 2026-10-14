@@ -45,6 +45,16 @@ const STEP_LABELS: Record<Step, string> = {
 
 const FOOTER_STYLE: React.CSSProperties = { padding: "16px 20px 20px" };
 
+const SOURCE_OPTIONS = [
+  { id: "youtube", label: "YouTube Shorts" },
+  { id: "tiktok", label: "TikTok" },
+  { id: "instagram", label: "Instagram Reels" },
+] as const;
+
+function sourceSummary(platforms: string[]) {
+  return SOURCE_OPTIONS.filter((o) => platforms.includes(o.id)).map((o) => o.label).join(" · ") || "YouTube Shorts";
+}
+
 export function AutomationWizard({ accounts, reactions, existing, initialTheme, onClose, onSave, onReactionsRefresh }: Props) {
   const [draft, setDraft] = useState<AutomationDraft>(() => {
     if (existing) return draftFromAutomation(existing);
@@ -60,6 +70,18 @@ export function AutomationWizard({ accounts, reactions, existing, initialTheme, 
 
   const stepIndex = STEPS.indexOf(step);
   const set = (patch: Partial<AutomationDraft>) => setDraft((d) => ({ ...d, ...patch }));
+  // Sempre sobra pelo menos uma fonte: sem nenhuma a automação não teria onde buscar.
+  const toggleSource = (id: string) =>
+    setDraft((d) => {
+      const has = d.source_platforms.includes(id);
+      if (has && d.source_platforms.length === 1) return d;
+      return {
+        ...d,
+        source_platforms: has
+          ? d.source_platforms.filter((p) => p !== id)
+          : [...d.source_platforms, id],
+      };
+    });
 
   const blockers = useMemo(() => activationBlockers(draft), [draft]);
   const queriesCount = draft.search_queries.filter((q) => q.trim()).length;
@@ -142,9 +164,22 @@ export function AutomationWizard({ accounts, reactions, existing, initialTheme, 
               <Field>
                 <FieldLabel>Fonte</FieldLabel>
                 <div className="flex flex-wrap gap-2">
-                  <Pill tone="violet"><Icon name="youtube" size={11} style={{ marginRight: 4 }} />YouTube Shorts</Pill>
-                  <Pill tone="neutral">TikTok · em breve</Pill>
-                  <Pill tone="neutral">Instagram · em breve</Pill>
+                  {SOURCE_OPTIONS.map((option) => {
+                    const active = draft.source_platforms.includes(option.id);
+                    return (
+                      <button
+                        aria-pressed={active}
+                        key={option.id}
+                        onClick={() => toggleSource(option.id)}
+                        type="button"
+                      >
+                        <Pill tone={active ? "violet" : "neutral"}>
+                          <Icon name={option.id} size={11} style={{ marginRight: 4 }} />
+                          {option.label}
+                        </Pill>
+                      </button>
+                    );
+                  })}
                 </div>
               </Field>
               <div className="grid gap-3 grid-cols-3">
@@ -498,7 +533,7 @@ function ReviewStep({
     <div className="card card-pad" style={{ padding: 14 }}>
       <div className="grid gap-2">
         <Row label="Tema">{draft.search_queries.filter(Boolean).join(" · ") || "—"}</Row>
-        <Row label="Fonte">YouTube Shorts</Row>
+        <Row label="Fonte">{sourceSummary(draft.source_platforms)}</Row>
         <Row label="Reactions">{reactionCount} no pool</Row>
         <Row label="Divisão">{modeLabel(draft.overlay_mode)}</Row>
         <Row label="Legenda">{modeLabel(draft.caption_mode)}</Row>
