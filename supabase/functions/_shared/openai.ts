@@ -1,10 +1,10 @@
 // Structured-output LLM client over the OpenAI-compatible /chat/completions API.
-// Works with DeepSeek (default: deepseek-v4-flash) and any OpenAI-compatible host.
+// Defaults to OpenAI (gpt-6-luna); works with any OpenAI-compatible host (e.g. DeepSeek).
 //
 // Configurable via env (set as Supabase function secrets):
-//   LLM_API_KEY   – API key (falls back to DEEPSEEK_API_KEY, then OPENAI_API_KEY)
-//   LLM_API_BASE  – base URL (default https://api.deepseek.com)
-//   LLM_MODEL     – model id (default deepseek-v4-flash)
+//   LLM_API_KEY   – API key (falls back to OPENAI_API_KEY, then DEEPSEEK_API_KEY)
+//   LLM_API_BASE  – base URL (default https://api.openai.com/v1)
+//   LLM_MODEL     – model id (default gpt-6-luna)
 //
 // Note: deepseek-v4 models are *reasoning* models — they spend completion tokens
 // on hidden reasoning before emitting the answer, so we add generous headroom on
@@ -17,17 +17,17 @@ type ResponsesInput = Array<{
 
 type ChatMessage = { role: "system" | "user"; content: string };
 
-const DEFAULT_BASE_URL = "https://api.deepseek.com";
-const DEFAULT_MODEL = "deepseek-v4-flash";
+const DEFAULT_BASE_URL = "https://api.openai.com/v1";
+const DEFAULT_MODEL = "gpt-6-luna";
 // Headroom for reasoning tokens consumed before the JSON answer is produced.
 const REASONING_HEADROOM_TOKENS = 2000;
 
 function llmConfig() {
   const apiKey = Deno.env.get("LLM_API_KEY") ??
-    Deno.env.get("DEEPSEEK_API_KEY") ??
-    Deno.env.get("OPENAI_API_KEY");
+    Deno.env.get("OPENAI_API_KEY") ??
+    Deno.env.get("DEEPSEEK_API_KEY");
   if (!apiKey) {
-    throw new Error("LLM_API_KEY (or DEEPSEEK_API_KEY) is required");
+    throw new Error("LLM_API_KEY (or OPENAI_API_KEY) is required");
   }
   const baseUrl = (Deno.env.get("LLM_API_BASE") ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
   const model = Deno.env.get("LLM_MODEL") ?? DEFAULT_MODEL;
@@ -67,7 +67,10 @@ export async function createStructuredResponse<T>({
       model: model ?? cfg.model,
       messages,
       response_format: { type: "json_object" },
-      max_tokens: maxOutputTokens + REASONING_HEADROOM_TOKENS,
+      // OpenAI's current models reject `max_tokens`; other hosts still expect it.
+      ...(cfg.baseUrl.includes("api.openai.com")
+        ? { max_completion_tokens: maxOutputTokens + REASONING_HEADROOM_TOKENS }
+        : { max_tokens: maxOutputTokens + REASONING_HEADROOM_TOKENS }),
     }),
   });
 
